@@ -40,27 +40,9 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, message);
     }
 
-    /** Bad filter values on GET /api/customers. */
-    @ExceptionHandler(BadRequestException.class)
-    public ResponseEntity<ErrorResponse> handleBadRequest(BadRequestException ex) {
-        return build(HttpStatus.BAD_REQUEST, ex.getMessage());
-    }
-
-    /** Authenticated, but the token carries no customer id (e.g. GET /api/customers/me). */
-    @ExceptionHandler(ForbiddenException.class)
-    public ResponseEntity<ErrorResponse> handleForbidden(ForbiddenException ex) {
-        return build(HttpStatus.FORBIDDEN, ex.getMessage());
-    }
-
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ErrorResponse> handleIllegalState(IllegalStateException ex) {
         return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
-    }
-
-    /** A dependency (the Ledger Service) is down or too slow. */
-    @ExceptionHandler(ServiceUnavailableException.class)
-    public ResponseEntity<ErrorResponse> handleServiceUnavailable(ServiceUnavailableException ex) {
-        return build(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage());
     }
 
     private ResponseEntity<ErrorResponse> build(HttpStatus status, String message) {
