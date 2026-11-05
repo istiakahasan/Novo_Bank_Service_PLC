@@ -1,6 +1,6 @@
 # Novo Bank Service PLC
 
-Banking prototype: Spring Boot 3.2 (Java 17) on Render, PostgreSQL on Supabase, Redis + QStash on Upstash — all free tier.
+Banking prototype (customer service + double-entry ledger service in one deployable): Spring Boot 3.2 (Java 17) on Render, PostgreSQL on Supabase, Redis + QStash on Upstash — all free tier.
 
 ## Quick start
 
@@ -39,6 +39,42 @@ Get-Content .env | Where-Object { $_ -match '^[^#].*=' } | ForEach-Object { $k,$
 - Money is stored as integer cents (`BIGINT`).
 - `ddl-auto=validate`: the app never changes the schema; `db/schema.sql` is the source of truth.
 - Tests are plain unit tests (Mockito); no database needed. Build: `./mvnw package`.
+
+## Ledger API
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/transfers` | 201; 400 invalid/same account, 404 account, 409 lock busy, 422 insufficient funds |
+| GET | `/api/transfers/{id}` | 404 if missing |
+| GET | `/api/accounts/{id}/balance` | `{accountId, balanceCents, currency}` |
+| GET | `/api/accounts/{id}/entries?limit=20` | newest first, max 100 |
+
+Replace the host below with `http://localhost:3003` or your Render URL.
+
+```bash
+BASE=http://localhost:3003
+ALICE=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+BOB=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb
+
+# 1. Successful transfer ($100.00 Alice -> Bob)
+curl -i -X POST $BASE/api/transfers -H "Content-Type: application/json"   -d "{\"fromAccount\":\"$ALICE\",\"toAccount\":\"$BOB\",\"amountCents\":10000,\"idempotencyKey\":\"demo-001\"}"
+
+# 2. Duplicate: same key again -> same transactionId, balance moves only once
+curl -i -X POST $BASE/api/transfers -H "Content-Type: application/json"   -d "{\"fromAccount\":\"$ALICE\",\"toAccount\":\"$BOB\",\"amountCents\":10000,\"idempotencyKey\":\"demo-001\"}"
+
+# 3. Insufficient funds -> 422
+curl -i -X POST $BASE/api/transfers -H "Content-Type: application/json"   -d "{\"fromAccount\":\"$ALICE\",\"toAccount\":\"$BOB\",\"amountCents\":99999999,\"idempotencyKey\":\"demo-002\"}"
+
+curl $BASE/api/accounts/$ALICE/balance
+curl "$BASE/api/accounts/$ALICE/entries?limit=5"
+```
+
+### Verify the outbox when QStash is down
+
+1. Set `QSTASH_TOKEN` to a wrong value (Render -> Environment) or `QSTASH_TOPIC_URL` to an unreachable URL, redeploy.
+2. Make a transfer (it still returns 201). In Supabase SQL Editor:
+   `SELECT id, event_type, published FROM outbox ORDER BY id DESC LIMIT 5;` -> newest row has `published = false`; logs show `Outbox event N not delivered, will retry`.
+3. Restore the correct values and redeploy. Within ~5 seconds the poller delivers the event and the row flips to `published = true`. The ledger and balances were correct the whole time.
 
 ## Customer API (port 3003)
 
