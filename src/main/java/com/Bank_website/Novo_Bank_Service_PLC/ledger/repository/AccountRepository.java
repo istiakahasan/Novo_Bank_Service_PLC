@@ -7,7 +7,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,8 +14,6 @@ import java.util.UUID;
 public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     Optional<Account> findByAccountNumber(String accountNumber);
-
-    List<Account> findByCustomerId(UUID customerId);
 
     @Query("SELECT a.customerId FROM Account a WHERE a.id = :accountId")
     Optional<UUID> findCustomerIdByAccountId(@Param("accountId") UUID accountId);
