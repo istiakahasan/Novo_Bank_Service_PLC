@@ -58,6 +58,7 @@ Note: Customer and Ledger run as **one Spring Boot app / one Render service**, s
 |---|---|
 | [docs/API.md](docs/API.md) | Endpoints, curl examples, outbox test |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | End-to-end test, Render deploy, monitoring, troubleshooting, checklist |
+| [docs/DATA_GOVERNANCE.md](docs/DATA_GOVERNANCE.md) | Customer data inventory, flows, PII leak audit, event payloads, retention, masking, gaps |
 | [docs/AUTHORIZATION.md](docs/AUTHORIZATION.md) | Roles, endpoint matrix, tokens, service keys, attack tests |
 | [docs/SETUP.md](docs/SETUP.md) | Click-by-click account setup |
 | [docs/QSTASH_WIRING.md](docs/QSTASH_WIRING.md) | URL group, retries/DLQ, signature verification |

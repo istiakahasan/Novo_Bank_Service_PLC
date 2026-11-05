@@ -80,6 +80,13 @@ Client ──HTTPS──▶ Render (Spring Boot, free, sleeps 15 min)
 - Shared code lives in `security-starter` (Maven library): filters, verifier, handlers, service-key interceptor.
 - Full matrix and rotation procedures: `docs/AUTHORIZATION.md`.
 
+## Data governance
+
+Full inventory, lineage, PII leak audit, retention schedule and gap analysis: `docs/DATA_GOVERNANCE.md`.
+- Customer PII lives only in `customers` (and short-lived Redis caches in Notification); the ledger holds account ids and amounts only, so anonymizing `customers` makes ledger history non-attributable while the append-only rule stays intact.
+- `MaskingUtil` (in `security-starter`) is the single place for masking; Notification's logs already use it.
+- Known gaps (details in the document): contact details and the AML risk rating are returned unmasked by the Customer API, `customer.created` events carry PII, and no retention/deletion job exists yet.
+
 ## Components
 
 | Component | Role | Free limit |

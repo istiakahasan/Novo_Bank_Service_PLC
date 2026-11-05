@@ -1,5 +1,14 @@
 # Changes
 
+## 2026-11-05 - Customer data governance inventory
+
+- Added `docs/DATA_GOVERNANCE.md`: master inventory (116 fields/keys: 74 implemented, 42 proposed), data-flow map for the 10 most sensitive fields, API exposure (PII leak) audit, event payload inventory with minimal payloads, retention and deletion schedule, masking rules, gap analysis, and a one-page summary for compliance.
+- Added `MaskingUtil` (+ `MaskingUtilTest`, 5 tests) to `security-starter`; Notification's `SMS to ...` and `EMAIL sent to ...` log lines now log masked values (finding F7 fixed). `docs/RUNBOOK.md` and `scripts/e2e.sh` updated to the masked log format.
+- Added `db/proposed/004_governance_gaps.sql`: proposed ALTER/CREATE statements (address, KYC verifier and time, audit users, PEP/sanctions, document expiry and alert timestamps, retention clock, purpose code, consent/document/PII-access tables). **Not applied automatically and not required by the app.**
+- Deviations from the brief: the brief's context assumes `customer_documents` and `customer_consents` exist and that most identity, address and lifecycle fields are stored; they are not in the code, so those rows are marked NOT IMPLEMENTED/proposed. Five extra Redis keys and the auth tables were added to the inventory because they also hold customer-related data. One extra column (Status) was added to the master table.
+- Findings recorded but NOT fixed in code: contact details and AML risk rating returned unmasked (F1, F2), mobile number in a URL path (F3), PII in events and Redis (F5, F6), no retention job (S7).
+- Citations: FATF, GDPR and PCI DSS references are standard; Bangladesh instruments (MLPA 2012 s.25, BFIU circulars, Bangladesh Bank ICT guideline, Anti-Terrorism Act 2009, Contract Act 1872 s.11) are cited by name and must be verified by counsel; items marked `[verify]` in the document need the exact clause number.
+
 ## 2026-11-05 - Access authorization layer
 
 - New `security-starter/` (Maven library): `JwtAuthenticationFilter`, `SystemKeyAuthenticationFilter`, `JwtVerifier` (RS256, local verification, rotation with a second public key), `RoleExtractor` (SYSTEM can never come from a user token), `UnauthorizedHandler` (401), `ForbiddenHandler` (403), `SecurityBaseline`, `SystemAuthInterceptor`, Redis revocation check, auto-configuration `SecurityConfig`.

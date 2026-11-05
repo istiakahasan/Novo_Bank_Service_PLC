@@ -156,5 +156,5 @@ fi
 
 echo
 echo "RESULT: $pass passed, $fail failed"
-echo "Now grep the Render logs for: FRAUD CHECK txn=$TXN1 | FRAUD ALERT rule=HIGH_VALUE txn=$TXN6K | EMAIL sent to rahim$RUN@example.com"
+echo "Now grep the Render logs for: FRAUD CHECK result=PASS txn=$TXN1 | FRAUD ALERT rule=HIGH_VALUE txn=$TXN6K | EMAIL sent to r***@example.com (masked)"
 [ "$fail" -eq 0 ]
