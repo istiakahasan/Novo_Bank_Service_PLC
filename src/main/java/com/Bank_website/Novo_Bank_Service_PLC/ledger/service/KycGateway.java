@@ -1,9 +1,6 @@
 package com.Bank_website.Novo_Bank_Service_PLC.ledger.service;
 
-import com.Bank_website.Novo_Bank_Service_PLC.dto.CustomerResponse;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.exception.KycNotVerifiedException;
-import com.Bank_website.Novo_Bank_Service_PLC.ledger.exception.ResourceNotFoundException;
-import com.Bank_website.Novo_Bank_Service_PLC.service.CustomerService;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -11,39 +8,43 @@ import java.time.Duration;
 import java.util.UUID;
 
 /**
- * Ledger-side KYC gate. Customer and Ledger run in the same JVM, so the customer lookup is an
- * in-process call to CustomerService (the logic behind GET /api/customers/{id}) instead of an HTTP hop.
+ * Ledger-side KYC gate with a Redis cache in front of a {@link KycLookup}.
  *
- * Only "verified" is cached (Redis kyc:{customerId}, 600 s). Caching "pending" would keep rejecting
- * a customer for up to 10 minutes after their KYC is approved.
+ * Keys: kyc:{accountId} for transfers, kyc:customer:{customerId} for account opening; TTL 600 s.
+ * Only "verified" is cached. Caching "pending" would keep rejecting a customer for up to
+ * 10 minutes after their KYC is approved.
  */
 @Component
 public class KycGateway {
 
     static final Duration CACHE_TTL = Duration.ofSeconds(600);
 
-    private final CustomerService customerService;
+    private final KycLookup lookup;
     private final RedisTemplate<String, String> redis;
 
-    public KycGateway(CustomerService customerService, RedisTemplate<String, String> redis) {
-        this.customerService = customerService;
+    public KycGateway(KycLookup lookup, RedisTemplate<String, String> redis) {
+        this.lookup = lookup;
         this.redis = redis;
     }
 
-    public void requireVerified(UUID customerId) {
-        String key = "kyc:" + customerId;
-        if ("verified".equals(redis.opsForValue().get(key))) {
+    /** Transfer path: 404 unknown account, 422 not verified, 503 customer service unavailable. */
+    public void requireVerifiedAccount(UUID accountId) {
+        check("kyc:" + accountId, () -> lookup.statusByAccount(accountId));
+    }
+
+    /** Account-opening path. */
+    public void requireVerifiedCustomer(UUID customerId) {
+        check("kyc:customer:" + customerId, () -> lookup.statusByCustomer(customerId));
+    }
+
+    private void check(String cacheKey, java.util.function.Supplier<String> status) {
+        if ("verified".equals(redis.opsForValue().get(cacheKey))) {
             return;
         }
-        CustomerResponse customer;
-        try {
-            customer = customerService.getById(customerId);
-        } catch (com.Bank_website.Novo_Bank_Service_PLC.exception.ResourceNotFoundException e) {
-            throw new ResourceNotFoundException("Customer not found: " + customerId);
+        String kycStatus = status.get();
+        if (!"verified".equals(kycStatus)) {
+            throw new KycNotVerifiedException("Customer KYC is not verified (status: " + kycStatus + ")");
         }
-        if (!"verified".equals(customer.kycStatus())) {
-            throw new KycNotVerifiedException("Customer KYC is not verified (status: " + customer.kycStatus() + ")");
-        }
-        redis.opsForValue().set(key, "verified", CACHE_TTL);
+        redis.opsForValue().set(cacheKey, "verified", CACHE_TTL);
     }
 }

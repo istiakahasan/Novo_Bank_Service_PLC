@@ -100,7 +100,7 @@ check "transfer completed" "completed" "$(echo "$BODY" | jq -r .status)"
 req GET "$MAIN/api/accounts/$ACCOUNT_ID/balance"; check "Rahim balance 40000" "40000" "$(echo "$BODY" | jq -r .balanceCents)"
 
 req POST "$MAIN/api/transfers" "$T1"
-check "duplicate key 201" "201" "$CODE"
+check "duplicate key 200 (replay)" "200" "$CODE"
 check "duplicate returns same txn id" "$TXN1" "$(echo "$BODY" | jq -r .transactionId)"
 req GET "$MAIN/api/accounts/$ACCOUNT_ID/balance"; check "no double debit" "40000" "$(echo "$BODY" | jq -r .balanceCents)"
 

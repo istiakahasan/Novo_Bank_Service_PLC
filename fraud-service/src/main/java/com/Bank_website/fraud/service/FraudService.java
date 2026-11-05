@@ -74,8 +74,8 @@ public class FraudService {
 
         ruleEngine.recordTransaction(event.fromAccount());
         ruleEngine.markProcessed(event.transactionId());
-        log.info("FRAUD CHECK txn={} account={} amountCents={} flagged={} rules={}",
-                event.transactionId(), event.fromAccount(), event.amountCents(), !rules.isEmpty(), rules);
+        log.info("FRAUD CHECK result={} txn={} account={} amountCents={} rules={}",
+                rules.isEmpty() ? "PASS" : "FLAGGED", event.transactionId(), event.fromAccount(), event.amountCents(), rules);
         return new FraudCheckResult(event.transactionId(), !rules.isEmpty(), rules);
     }
 

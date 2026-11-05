@@ -27,6 +27,12 @@ spring:
 server:
   port: ${PORT:3003}
 
+customer:
+  service:
+    # Empty (default) = Customer and Ledger share this JVM, KYC lookup is in-process.
+    # Set to the Customer Service URL if deployed separately: HTTP lookup, 5 s timeout, 503 when unreachable.
+    url: ${CUSTOMER_SERVICE_URL:}
+
 qstash:
   topic-url: ${QSTASH_TOPIC_URL}
   token: ${QSTASH_TOKEN}
