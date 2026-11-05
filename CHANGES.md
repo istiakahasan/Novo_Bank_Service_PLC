@@ -1,5 +1,12 @@
 # Changes
 
+## 2026-11-05 - shared-security-starter library
+
+- New Maven module `shared-security-starter/` (`com.banking:shared-security-starter:1.0.0`): `JwtValidator` (RS256, issuer `banking-auth`, Redis `jwt_blocklist:{jti}`, key from `JWT_PUBLIC_KEY` or cached JWKS), `JwtAuthenticationFilter`, `QStashSignatureVerifier` + `QStashSignatureFilter` (real Upstash JWT format and `v1=` HMAC), `UnauthorizedHandler`, `ForbiddenHandler`, `RoleExtractor`, `DefaultSecurityConfig` (CORS from `CORS_ALLOWED_ORIGINS`), auto-configuration.
+- Publishing: GitHub Packages (`distributionManagement`, `.github/workflows/publish-shared-security-starter.yml`) and a clone-and-install fallback; Render build commands in `docs/SHARED_SECURITY_STARTER.md`.
+- 26 tests including a real Spring context with no security code of its own (401/403 JSON, @PreAuthorize, webhook signature before the controller, CORS, custom-chain override).
+- Existing services and the in-repo `security-starter` are unchanged; migrating a service means removing its own security classes and adding the dependency.
+
 ## 2026-11-05 - Support Service
 
 - New `support-service/` (port 3007, Java 17, Boot 3.2.12): entities `SupportTicket` / `TicketMessage`, repositories (Specification-based STAFF filters), DTO records, `TicketMapper`, `TicketService` (status transition validation, ownership, internal notes), `TicketEventPublisher`, `TransferCompletedWebhookHandler`, `TicketController`, `SupportWebhookController`, security config, exception handler, Dockerfile (repo-root build context).
