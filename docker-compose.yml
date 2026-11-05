@@ -1,0 +1,182 @@
+# Whole stack on one machine:  ./scripts/make-key.sh && docker compose up --build   (or ./scripts/start-all.sh)
+#
+#   postgres :5432   redis :6379   mailhog :1025 (SMTP) / :8025 (UI)   wiremock :8080 (QStash stand-in)
+#   customer :3003   ledger :3004 (same app, see below)   fraud :3005   notification :3006   support :3007   auth :3008
+#
+# Customer and Ledger are ONE Spring Boot application in this repository, so "customer" is that app and "ledger"
+# is a tiny TCP forwarder that makes the same app reachable on :3004 as well.
+
+name: banking
+
+x-service: &service
+  env_file: .env.local
+  networks: [banking-net]
+  restart: unless-stopped
+
+x-build-args: &build-args
+  GH_PACKAGES_USER: ${GH_PACKAGES_USER:-}
+  GH_PACKAGES_TOKEN: ${GH_PACKAGES_TOKEN:-}
+
+x-health: &health-defaults
+  interval: 10s
+  timeout: 5s
+  retries: 12
+  start_period: 90s
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: banking
+      POSTGRES_USER: banking
+      POSTGRES_PASSWORD: localdev
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banking -d banking"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [banking-net]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [banking-net]
+
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks: [banking-net]
+
+  # Stands in for Upstash QStash: accepts POST /qstash/topic and calls the webhook endpoints (see wiremock/qstash-mappings).
+  # WireMock 3.13 ships the webhook support itself, no extension jar is needed.
+  wiremock:
+    image: wiremock/wiremock:3.13.2
+    command: ["--port", "8080", "--verbose"]
+    ports: ["8080:8080"]
+    volumes:
+      - ./wiremock/qstash-mappings:/home/wiremock/mappings:ro
+    networks: [banking-net]
+
+  auth:
+    <<: *service
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile
+      args: *build-args
+    environment:
+      PORT: "3008"
+      AUTH_DB_SCHEMA: public
+    ports: ["3008:3008"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3008/actuator/health | grep -q UP"]
+      <<: *health-defaults
+
+  customer:
+    <<: *service
+    build:
+      context: .
+      dockerfile: services/customer/Dockerfile
+      args: *build-args
+    environment:
+      PORT: "3003"
+      # one app serves both the customer and the ledger API: KYC and account lookups are in-process
+      CUSTOMER_SERVICE_URL: ""
+      LEDGER_SERVICE_URL: ""
+      # keys of the services that call the customer API (X-Service-Id / X-Service-Key)
+      SYSTEM_KEYS: "fraud-service=fraud-local-key;notification-service=notification-local-key;support-service=support-local-key;customer-service=customer-local-key"
+    ports: ["3003:3003"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      wiremock: {condition: service_started}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/actuator/health | grep -q UP"]
+      <<: *health-defaults
+
+  ledger:
+    image: alpine/socat
+    command: ["TCP-LISTEN:3004,fork,reuseaddr", "TCP:customer:3003"]
+    ports: ["3004:3004"]
+    depends_on:
+      customer: {condition: service_healthy}
+    networks: [banking-net]
+    restart: unless-stopped
+
+  fraud:
+    <<: *service
+    build:
+      context: .
+      dockerfile: services/fraud/Dockerfile
+      args: *build-args
+    environment:
+      PORT: "3005"
+      SERVICE_ID: fraud-service
+      SERVICE_KEY: fraud-local-key
+    ports: ["3005:3005"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      customer: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3005/actuator/health | grep -q UP"]
+      <<: *health-defaults
+
+  notification:
+    <<: *service
+    build:
+      context: .
+      dockerfile: services/notification/Dockerfile
+      args: *build-args
+    environment:
+      PORT: "3006"
+      SERVICE_ID: notification-service
+      SERVICE_KEY: notification-local-key
+    ports: ["3006:3006"]
+    depends_on:
+      redis: {condition: service_healthy}
+      customer: {condition: service_healthy}
+      mailhog: {condition: service_started}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3006/actuator/health | grep -q UP"]
+      <<: *health-defaults
+
+  support:
+    <<: *service
+    build:
+      context: .
+      dockerfile: services/support/Dockerfile
+      args: *build-args
+    environment:
+      PORT: "3007"
+      SERVICE_ID: support-service
+      SYSTEM_TOKEN_SECRET: support-local-key
+    ports: ["3007:3007"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      customer: {condition: service_healthy}
+      wiremock: {condition: service_started}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3007/actuator/health | grep -q UP"]
+      <<: *health-defaults
+
+networks:
+  banking-net:
+    name: banking-net
+
+volumes:
+  pgdata:
