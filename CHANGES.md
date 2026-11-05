@@ -1,5 +1,15 @@
 # Changes
 
+## 2026-11-05 - Customer list, accounts aggregation and /me
+
+- Customer: `GET /api/customers` (STAFF; filters kycStatus / status / riskTier, case-insensitive; paged, default 20, max 100), `GET /api/customers/{id}/accounts` (CUSTOMER own / STAFF; aggregated from the Ledger, Redis `customer_accounts:{id}` 60 s, 503 when the Ledger is down), `GET /api/customers/me` (CUSTOMER; from the token, 403 without a customerId claim).
+- New: `PaginatedCustomerResponse`, `AccountSummaryResponse`, `LedgerClient` (SYSTEM service key, 5 s timeouts; in-process when `LEDGER_SERVICE_URL` is empty), `ServiceUnavailableException` (503), `ForbiddenException` (403), `BadRequestException` (400); `CustomerRepository` extends `JpaSpecificationExecutor<Customer>`.
+- Ledger: `GET /api/accounts?customerId=` (SYSTEM only) via `LedgerAccountController`, `AccountRepository.findByCustomerId`, `AccountSummaryResponse`, `TransferMapper.toAccountSummary`.
+- `ServiceSecurityConfig`: rules for the four new paths (the `/api/accounts/**` user rule no longer covers `GET /api/accounts`, which is SYSTEM only).
+- New config: `LEDGER_SERVICE_URL`, `CUSTOMER_SERVICE_ID`, `SYSTEM_TOKEN_SECRET`; the Ledger needs `customer-service=<secret>` in `SYSTEM_KEYS` when it is a separate service.
+- Deviations from the brief: the filter uses `JpaSpecificationExecutor` (not the JPQL null-parameter query, which PostgreSQL cannot type); the existing `security-starter` is used (the `shared-security-starter` library is not adopted by this service yet); the Ledger call is skipped in favour of an in-process read when both run in one app.
+- Tests: 50 pass in the main app (listing and filter rules, LedgerClient HTTP/cache/outage/headers, authorization slice for every new path).
+
 ## 2026-11-05 - shared-security-starter library
 
 - New Maven module `shared-security-starter/` (`com.banking:shared-security-starter:1.0.0`): `JwtValidator` (RS256, issuer `banking-auth`, Redis `jwt_blocklist:{jti}`, key from `JWT_PUBLIC_KEY` or cached JWKS), `JwtAuthenticationFilter`, `QStashSignatureVerifier` + `QStashSignatureFilter` (real Upstash JWT format and `v1=` HMAC), `UnauthorizedHandler`, `ForbiddenHandler`, `RoleExtractor`, `DefaultSecurityConfig` (CORS from `CORS_ALLOWED_ORIGINS`), auto-configuration.

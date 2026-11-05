@@ -39,8 +39,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = {CustomerController.class, TransferController.class, AccountController.class})
-@Import({SecurityConfig.class, ServiceSecurityConfig.class, AccessPolicy.class})
+@WebMvcTest(controllers = {CustomerController.class, TransferController.class, AccountController.class,
+        com.Bank_website.Novo_Bank_Service_PLC.ledger.controller.LedgerAccountController.class})
+@Import({SecurityConfig.class, ServiceSecurityConfig.class, AccessPolicy.class,
+        com.Bank_website.Novo_Bank_Service_PLC.ledger.mapper.TransferMapper.class})
 class SecurityAuthorizationTest {
 
     private static final KeyPair KEYS = newKeys();
@@ -223,5 +225,76 @@ class SecurityAuthorizationTest {
                 new com.Bank_website.Novo_Bank_Service_PLC.ledger.dto.TransferResponse(UUID.randomUUID(), "completed", 100L, null), false));
         mvc.perform(post("/api/transfers").header("Authorization", alice()).contentType(MediaType.APPLICATION_JSON)
                 .content(TRANSFER_BODY.formatted(aliceAccount, bobAccount))).andExpect(status().isCreated());
+    }
+
+    // ---- GET /api/customers, /me, /{id}/accounts and the SYSTEM-only ledger lookup
+
+    @Test
+    void customerListIsStaffOnly() throws Exception {
+        when(customerService.listCustomers(any(), any(), any(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new com.Bank_website.Novo_Bank_Service_PLC.dto.PaginatedCustomerResponse(List.of(), 0, 20, 0, 0));
+        mvc.perform(get("/api/customers?kycStatus=PENDING&page=0&size=20").header("Authorization", staff()))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/customers").header("Authorization", alice())).andExpect(status().isForbidden());
+        mvc.perform(get("/api/customers")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/customers").header("X-Service-Id", "ledger").header("X-Service-Key", "ledger-key"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void badListFiltersAre400() throws Exception {
+        when(customerService.listCustomers(any(), any(), any(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenThrow(new com.Bank_website.Novo_Bank_Service_PLC.exception.BadRequestException("kycStatus must be one of ..."));
+        mvc.perform(get("/api/customers?kycStatus=MAYBE").header("Authorization", staff())).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void meIsCustomerOnlyAndUsesTheTokenCustomerId() throws Exception {
+        when(customerService.getById(aliceCustomer)).thenReturn(
+                new CustomerResponse(aliceCustomer, "CIF-000001", "A B", "01712345678", null, "verified", "low", "active", null));
+        mvc.perform(get("/api/customers/me").header("Authorization", alice())).andExpect(status().isOk());
+        org.mockito.Mockito.verify(customerService).getById(aliceCustomer);
+        mvc.perform(get("/api/customers/me").header("Authorization", staff())).andExpect(status().isForbidden());
+        mvc.perform(get("/api/customers/me")).andExpect(status().isUnauthorized());
+        // a CUSTOMER token without a customerId claim -> 403
+        String noCid = "Bearer " + token(KEYS, List.of("CUSTOMER"), null, 300);
+        mvc.perform(get("/api/customers/me").header("Authorization", noCid)).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void customerAccountsOwnOtherStaffAndLedgerOutage() throws Exception {
+        when(customerService.getAccounts(aliceCustomer)).thenReturn(List.of());
+        mvc.perform(get("/api/customers/" + aliceCustomer + "/accounts").header("Authorization", alice())).andExpect(status().isOk());
+        mvc.perform(get("/api/customers/" + bobCustomer + "/accounts").header("Authorization", alice())).andExpect(status().isForbidden());
+        mvc.perform(get("/api/customers/" + bobCustomer + "/accounts").header("Authorization", staff())).andExpect(status().isOk());
+        mvc.perform(get("/api/customers/" + aliceCustomer + "/accounts")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/customers/" + aliceCustomer + "/accounts").header("X-Service-Id", "ledger").header("X-Service-Key", "ledger-key"))
+                .andExpect(status().isForbidden());
+
+        org.mockito.Mockito.doThrow(new com.Bank_website.Novo_Bank_Service_PLC.exception.ServiceUnavailableException("Ledger service unavailable, try again shortly"))
+                .when(customerService).getAccounts(aliceCustomer);
+        mvc.perform(get("/api/customers/" + aliceCustomer + "/accounts").header("Authorization", alice()))
+                .andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
+    void ledgerAccountsByCustomerIsSystemOnly() throws Exception {
+        com.Bank_website.Novo_Bank_Service_PLC.ledger.entity.Account account = new com.Bank_website.Novo_Bank_Service_PLC.ledger.entity.Account();
+        account.setId(aliceAccount);
+        account.setAccountNumber("ACC-0000000001");
+        account.setBalanceCents(100L);
+        when(accountRepository.findByCustomerId(aliceCustomer)).thenReturn(List.of(account));
+
+        mvc.perform(get("/api/accounts?customerId=" + aliceCustomer)
+                        .header("X-Service-Id", "ledger").header("X-Service-Key", "ledger-key"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].accountNumber").value("ACC-0000000001"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].balanceCents").value(100));
+        mvc.perform(get("/api/accounts?customerId=" + aliceCustomer).header("Authorization", staff())).andExpect(status().isForbidden());
+        mvc.perform(get("/api/accounts?customerId=" + aliceCustomer).header("Authorization", alice())).andExpect(status().isForbidden());
+        mvc.perform(get("/api/accounts?customerId=" + aliceCustomer)).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/accounts?customerId=" + aliceCustomer)
+                        .header("X-Service-Id", "ledger").header("X-Service-Key", "wrong"))
+                .andExpect(status().isUnauthorized());
     }
 }
