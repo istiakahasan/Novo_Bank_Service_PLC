@@ -27,8 +27,7 @@ class NovoBankServicePlcApplicationTests {
     private final CustomerRepository repo = mock(CustomerRepository.class);
     private final EventPublisher events = mock(EventPublisher.class);
     private final CustomerService service = new CustomerService(repo, new CustomerMapper(), events,
-            mock(com.Bank_website.Novo_Bank_Service_PLC.ledger.repository.AccountRepository.class),
-            mock(com.Bank_website.Novo_Bank_Service_PLC.service.LedgerClient.class));
+            mock(com.Bank_website.Novo_Bank_Service_PLC.ledger.repository.AccountRepository.class));
 
     private CreateCustomerRequest request() {
         return new CreateCustomerRequest("Ada", "Lovelace", LocalDate.of(1990, 1, 1),
