@@ -86,7 +86,15 @@ public class TransferService {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
+    /** replayed = true when an earlier request with the same idempotency key already completed. */
+    public record TransferOutcome(TransferResponse response, boolean replayed) {
+    }
+
     public TransferResponse executeTransfer(TransferRequest request) {
+        return transfer(request).response();
+    }
+
+    public TransferOutcome transfer(TransferRequest request) {
         if (request.fromAccount().equals(request.toAccount())) {
             throw new IllegalArgumentException("fromAccount and toAccount must differ");
         }
@@ -95,8 +103,12 @@ public class TransferService {
         String idemKey = "idem:" + request.idempotencyKey();
         String cached = redisTemplate.opsForValue().get(idemKey);
         if (cached != null) {
-            return readCached(cached);
+            return new TransferOutcome(readCached(cached), true);
         }
+
+        // a2. Sync KYC check BEFORE the lock and the DB transaction (kyc:{accountId}, 600 s):
+        //     404 unknown account, 422 not verified, 503 customer service unavailable (no transfer attempted)
+        kycGateway.requireVerifiedAccount(request.fromAccount());
 
         // b. Distributed lock: SET lock:{from} <token> NX EX 5
         String lockKey = "lock:" + request.fromAccount();
@@ -108,6 +120,7 @@ public class TransferService {
 
         try {
             TransferResponse response;
+            boolean replayed = false;
             try {
                 response = transactionTemplate.execute(status -> doTransfer(request));
             } catch (DataIntegrityViolationException duplicate) {
@@ -115,10 +128,11 @@ public class TransferService {
                 Transaction original = transactionRepository.findByIdempotencyKey(request.idempotencyKey())
                         .orElseThrow(() -> duplicate);
                 response = mapper.toResponse(original);
+                replayed = true;
             }
             // j. Cache after COMMIT so a rolled-back transfer is never cached.
             redisTemplate.opsForValue().set(idemKey, writeCached(response), IDEMPOTENCY_TTL);
-            return response;
+            return new TransferOutcome(response, replayed);
         } finally {
             // k. Always release (compare-and-delete)
             redisTemplate.execute(UNLOCK_SCRIPT, List.of(lockKey), lockToken);
@@ -134,9 +148,6 @@ public class TransferService {
         accountRepository.findById(request.toAccount())
                 .filter(a -> "active".equals(a.getStatus()))
                 .orElseThrow(() -> new ResourceNotFoundException("Active account not found: " + request.toAccount()));
-
-        // c2. Sender must be KYC-verified (cached in Redis kyc:{customerId}, 600 s) -> 422
-        kycGateway.requireVerified(from.getCustomerId());
 
         // e. Fast-fail balance check (the atomic UPDATE in step h is the real guard)
         if (from.getBalanceCents() < request.amountCents()) {

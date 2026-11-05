@@ -1,5 +1,19 @@
 # Changes
 
+## 2026-11-05 - Sync KYC lookup (HTTP-capable), 503 handling, replay semantics
+
+- Added `KycLookup` with `LocalKycLookup` (default, in-process) and `HttpKycLookup` (selected when `CUSTOMER_SERVICE_URL` is set; RestClient, 5 s timeouts; 404 -> 404, timeout/5xx -> 503).
+- `ServiceUnavailableException` + 503 handler; `ledger/config/RestClientConfig` (`ledgerCustomerClient`).
+- `KycGateway` now caches under `kyc:{accountId}` (transfers) and `kyc:customer:{customerId}` (account opening), TTL 600 s, verified only.
+- KYC check moved to before the Redis lock and DB transaction (no HTTP call while holding a DB connection or the account lock).
+- `GET /api/customers/by-account/{id}` now uses `AccountRepository.findCustomerIdByAccountId` (`SELECT a.customerId FROM Account a WHERE a.id = :accountId`) and returns 404 "Account not found" for unknown accounts; the old join query on `CustomerRepository` was removed.
+- Idempotent replay now returns **200** with the original transaction (new transfers stay 201): `TransferService.transfer()` returns `TransferOutcome(response, replayed)`; `executeTransfer()` kept as a thin wrapper.
+- Fraud log line now reads `FRAUD CHECK result=PASS|FLAGGED txn=...`.
+- Tests: new `HttpKycLookupTest` (4), updated transfer/account tests; main app 21 tests pass, fraud/notification unchanged.
+- Docs: new ASCII system diagram and KYC section in `ARCHITECTURE.md`; `docs/RUNBOOK.md` and `scripts/e2e.sh` updated for 200-on-replay, `PASS` log line, 503 behaviour and a 6-call quick check.
+- Reviewed and left as is (already satisfy the request): `OutboxPublisher`/`OutboxEvent`/`OutboxRepository`, and `QStashSignatureVerifier` in both services. A bare "HMAC-SHA256 of body vs header" check was deliberately NOT used: real QStash signatures are JWTs, so that check would reject every genuine request. Verifier returns a boolean and the controllers answer 401 instead of throwing `SecurityException`.
+- Not verified against live Supabase/Redis/QStash/Render.
+
 ## 2026-11-05 - Final integration and runbook
 
 - Ledger: `KycGateway` + `KycNotVerifiedException` (422): senders must be KYC-verified; `kyc:{customerId}` cached 600 s (verified only).

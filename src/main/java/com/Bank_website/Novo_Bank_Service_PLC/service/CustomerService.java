@@ -7,6 +7,7 @@ import com.Bank_website.Novo_Bank_Service_PLC.entity.Customer;
 import com.Bank_website.Novo_Bank_Service_PLC.event.EventPublisher;
 import com.Bank_website.Novo_Bank_Service_PLC.exception.DuplicateResourceException;
 import com.Bank_website.Novo_Bank_Service_PLC.exception.ResourceNotFoundException;
+import com.Bank_website.Novo_Bank_Service_PLC.ledger.repository.AccountRepository;
 import com.Bank_website.Novo_Bank_Service_PLC.mapper.CustomerMapper;
 import com.Bank_website.Novo_Bank_Service_PLC.repository.CustomerRepository;
 import org.springframework.stereotype.Service;
@@ -21,11 +22,14 @@ public class CustomerService {
     private final CustomerRepository repository;
     private final CustomerMapper mapper;
     private final EventPublisher eventPublisher;
+    private final AccountRepository accountRepository;
 
-    public CustomerService(CustomerRepository repository, CustomerMapper mapper, EventPublisher eventPublisher) {
+    public CustomerService(CustomerRepository repository, CustomerMapper mapper, EventPublisher eventPublisher,
+                           AccountRepository accountRepository) {
         this.repository = repository;
         this.mapper = mapper;
         this.eventPublisher = eventPublisher;
+        this.accountRepository = accountRepository;
     }
 
     @Transactional
@@ -65,8 +69,9 @@ public class CustomerService {
 
     @Transactional(readOnly = true)
     public CustomerResponse getByAccountId(UUID accountId) {
-        return mapper.toResponse(repository.findByAccountId(accountId)
-                .orElseThrow(() -> new ResourceNotFoundException("Customer not found for account: " + accountId)));
+        UUID customerId = accountRepository.findCustomerIdByAccountId(accountId)
+                .orElseThrow(() -> new ResourceNotFoundException("Account not found: " + accountId));
+        return getById(customerId);
     }
 
     @Transactional
