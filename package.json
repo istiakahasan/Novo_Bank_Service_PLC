@@ -1,0 +1,25 @@
+{
+  "name": "novo-bank-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Customer portal and agent console for the Novo Bank prototype",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:customer": "npm run dev -w @novo/customer-portal",
+    "dev:agent": "npm run dev -w @novo/agent-console",
+    "build:customer": "npm run build -w @novo/customer-portal",
+    "build:agent": "npm run build -w @novo/agent-console",
+    "build": "npm run build:customer && npm run build:agent",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test -w @novo/shared"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=18.18"
+  }
+}
