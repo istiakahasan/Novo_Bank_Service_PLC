@@ -64,6 +64,33 @@ Client ──HTTPS──▶ Render (Spring Boot, free, sleeps 15 min)
                     │  └─ publish (HTTPS)       ─▶ Upstash QStash ──signed callback──▶ Render
 ```
 
+## Authorization layer
+
+```
+ user --login--> AUTH-SERVICE :3007 --(RS256 JWT, 15 min + rotating refresh token)--> user
+                  | identity: Supabase auth_users, refresh_tokens
+                  | logout: Redis revoked:jti:{jti} (TTL = token life)
+ user --Bearer JWT--> NOVO-BANK (Customer + Ledger)   verifies locally with JWT_PUBLIC_KEY (no call to auth-service)
+ fraud / notification --X-Service-Id + X-Service-Key--> NOVO-BANK Customer API   (ROLE_SYSTEM, read-only + aml-risk)
+ QStash --Upstash-Signature (JWT HS256)--> fraud / notification webhooks         (no user token involved)
+```
+
+- Roles: CUSTOMER (own data only, via the `cid` claim), STAFF (all bank operations), SYSTEM (service key only; customer lookups and AML-risk update). A user token can never carry SYSTEM.
+- Two layers: route rules in each `ServiceSecurityConfig` (role per path, `denyAll` default) and `@PreAuthorize` ownership checks (`AccessPolicy`) on the controllers.
+- Shared code lives in `security-starter` (Maven library): filters, verifier, handlers, service-key interceptor.
+- Full matrix and rotation procedures: `docs/AUTHORIZATION.md`.
+
+## Support service
+
+`support-service` (:3007): `support_tickets` + append-only `ticket_messages` (database rules block UPDATE/DELETE). CUSTOMER sees own tickets, STAFF all; status only moves one step forward. It subscribes to the `banking-events` topic (`/webhooks/transfer-completed`, Upstash-Signature verified before any Redis/DB/customer-API access) and publishes `ticket.created` / `ticket.status_changed` back to the same topic after commit. It resolves the customer through the Customer API with its SYSTEM service key (`support-service`). Auto-creation is idempotent (existing ticket for `related_transaction_id`, plus a short Redis lock). See `docs/SUPPORT_SERVICE.md`.
+
+## Data governance
+
+Full inventory, lineage, PII leak audit, retention schedule and gap analysis: `docs/DATA_GOVERNANCE.md`.
+- Customer PII lives only in `customers` (and short-lived Redis caches in Notification); the ledger holds account ids and amounts only, so anonymizing `customers` makes ledger history non-attributable while the append-only rule stays intact.
+- `MaskingUtil` (in `security-starter`) is the single place for masking; Notification's logs already use it.
+- Known gaps (details in the document): contact details and the AML risk rating are returned unmasked by the Customer API, `customer.created` events carry PII, and no retention/deletion job exists yet.
+
 ## Components
 
 | Component | Role | Free limit |

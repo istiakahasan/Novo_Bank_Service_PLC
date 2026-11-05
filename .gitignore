@@ -42,3 +42,6 @@ build/
 
 # Secrets
 .env
+keys/
+*.pem
+*.b64

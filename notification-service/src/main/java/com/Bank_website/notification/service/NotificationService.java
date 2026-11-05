@@ -4,6 +4,7 @@ import com.Bank_website.notification.dto.CustomerCreatedEvent;
 import com.Bank_website.notification.dto.CustomerInfo;
 import com.Bank_website.notification.dto.NotificationResult;
 import com.Bank_website.notification.dto.TransferCompletedEvent;
+import com.Bank_website.security.MaskingUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,7 +52,7 @@ public class NotificationService {
         }
 
         boolean emailSent = sendTransferEmail(customer.get(), event);
-        log.info("SMS to {}: Txn {} of {} completed", customer.get().mobileNo(), ref, money(event.amountCents()));
+        log.info("SMS to {}: Txn {} of {} completed", MaskingUtil.maskMobile(customer.get().mobileNo()), ref, money(event.amountCents()));
         // Mark done only after the email went out; a mail failure throws and QStash retries.
         redis.opsForValue().set(doneKey, "1", DEDUPE_TTL);
         return new NotificationResult(ref, emailSent, true, false);
@@ -102,7 +103,7 @@ public class NotificationService {
         message.setSubject(subject);
         message.setText(text);
         mailSender.send(message);
-        log.info("EMAIL sent to {} subject='{}'", to, subject);
+        log.info("EMAIL sent to {} subject='{}'", MaskingUtil.maskEmail(to), subject);
     }
 
     static String money(long cents) {
