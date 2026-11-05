@@ -1,4 +1,6 @@
 spring:
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   application:
     name: customer-service
   datasource:
@@ -48,3 +50,14 @@ management:
   health:
     mail:
       enabled: false
+
+security:
+  jwt:
+    public-key: ${JWT_PUBLIC_KEY:}
+    public-key-next: ${JWT_PUBLIC_KEY_NEXT:}
+    issuer: ${JWT_ISSUER:novo-auth}
+    revocation-fail-open: ${JWT_REVOCATION_FAIL_OPEN:false}
+  system:
+    keys: ${SYSTEM_KEYS:}
+    service-id: ${SERVICE_ID:}
+    service-key: ${SERVICE_KEY:}
