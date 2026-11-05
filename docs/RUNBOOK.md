@@ -2,6 +2,8 @@
 
 **Read this first (how the repo really maps to your 4 services):** Customer and Ledger are ONE Spring Boot app (`/` of the repo, one JVM, one `PORT`). So there are **three** Render services: `novo-bank` (Customer + Ledger), `fraud-service`, `notification-service`. Because they share a JVM, the Ledger's KYC check calls `CustomerService` in-process (the same code behind `GET /api/customers/{id}`) instead of an HTTP hop. Part A lists exactly what was added.
 
+**Authorization is now enforced** (see `docs/AUTHORIZATION.md`). Every call to the main app in this runbook goes through `mcurl`, which sends a STAFF token (STAFF may perform every step below). Webhook calls keep using `curl` plus an `Upstash-Signature`.
+
 Shell variables used throughout (set once; `jq` required):
 
 ```bash
@@ -12,6 +14,10 @@ export ALICE_CUST=11111111-1111-4111-8111-111111111111
 export ALICE_ACC=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
 export BOB_ACC=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb
 export RUN=$(date +%s)                               # makes every re-run unique
+export AUTH=https://auth-service.onrender.com
+export STAFF=$(curl -s -X POST $AUTH/auth/login -H 'Content-Type: application/json' \
+  -d "{\"username\":\"staff\",\"password\":\"$STAFF_PASSWORD\"}" | jq -r .accessToken)   # expires in 15 min: re-run to refresh
+mcurl() { curl -H "Authorization: Bearer $STAFF" "$@"; }
 export PSQL_URL='postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres'
 ```
 
@@ -59,7 +65,7 @@ Expected (each): `{"status":"UP"}` (first call may take 30-60 s on free tier).
 
 ```bash
 MOBILE="01$(printf '%09d' $((RANDOM*RANDOM % 1000000000)))"
-RESP=$(curl -s -w '\n%{http_code}' -X POST $MAIN/api/customers -H 'Content-Type: application/json' -d "{
+RESP=$(mcurl -s -w '\n%{http_code}' -X POST $MAIN/api/customers -H 'Content-Type: application/json' -d "{
  \"firstName\":\"Rahim\",\"lastName\":\"Uddin\",\"dateOfBirth\":\"1992-04-10\",
  \"mobileNo\":\"$MOBILE\",\"email\":\"rahim$RUN@example.com\",\"idType\":\"nid\",
  \"idNumber\":\"NID$RUN\",\"addressLine1\":\"House 1, Road 2, Dhaka\"}")
@@ -82,7 +88,7 @@ Notification log: `EMAIL sent to rahim<RUN>@example.com subject='Welcome to Novo
 ### Step 2: duplicate mobile -> 409
 
 ```bash
-curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/customers -H 'Content-Type: application/json' -d "{
+mcurl -s -w '\n%{http_code}\n' -X POST $MAIN/api/customers -H 'Content-Type: application/json' -d "{
  \"firstName\":\"Dup\",\"lastName\":\"Licate\",\"dateOfBirth\":\"1990-01-01\",\"mobileNo\":\"$MOBILE\",
  \"idType\":\"nid\",\"idNumber\":\"OTHER$RUN\",\"addressLine1\":\"x\"}"
 ```
@@ -92,7 +98,7 @@ DB: `SELECT count(*) FROM customers WHERE mobile_no = '<MOBILE>';` -> `1`. No fr
 ### Step 3: account before KYC -> 422 (proves the gate)
 
 ```bash
-curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/accounts -H 'Content-Type: application/json' \
+mcurl -s -w '\n%{http_code}\n' -X POST $MAIN/api/accounts -H 'Content-Type: application/json' \
   -d "{\"customerId\":\"$CUSTOMER_ID\",\"accountType\":\"savings\",\"initialDepositCents\":50000}"
 ```
 Status `422`. Body: `{"status":422,"message":"Customer KYC is not verified (status: pending)","timestamp":"..."}`
@@ -101,7 +107,7 @@ DB: `SELECT count(*) FROM accounts WHERE customer_id = '<CUSTOMER_ID>';` -> `0`.
 ### Step 4: verify KYC -> 200
 
 ```bash
-curl -s -w '\n%{http_code}\n' -X PATCH $MAIN/api/customers/$CUSTOMER_ID/kyc \
+mcurl -s -w '\n%{http_code}\n' -X PATCH $MAIN/api/customers/$CUSTOMER_ID/kyc \
   -H 'Content-Type: application/json' -d '{"kycStatus":"verified","verifiedBy":"officer-1"}'
 ```
 Status `200`; body is the customer with `"kycStatus":"verified"`.
@@ -111,7 +117,7 @@ Logs: `kyc.verified` fans out to both `customer-created` endpoints: Fraud and No
 ### Step 5: open account with $500 -> 201
 
 ```bash
-RESP=$(curl -s -w '\n%{http_code}' -X POST $MAIN/api/accounts -H 'Content-Type: application/json' \
+RESP=$(mcurl -s -w '\n%{http_code}' -X POST $MAIN/api/accounts -H 'Content-Type: application/json' \
   -d "{\"customerId\":\"$CUSTOMER_ID\",\"accountType\":\"savings\",\"initialDepositCents\":50000}")
 echo "${RESP##*$'\n'}"; echo "${RESP%$'\n'*}" | jq .
 export ACCOUNT_ID=$(echo "${RESP%$'\n'*}" | jq -r .id)
@@ -132,8 +138,8 @@ Logs: both services `IGNORED event=account.created ...` (twice each, one per end
 ### Step 6: check balance -> 200
 
 ```bash
-curl -s $MAIN/api/accounts/$ACCOUNT_ID/balance | jq .
-curl -s "$MAIN/api/accounts/$ACCOUNT_ID/entries?limit=5" | jq .
+mcurl -s $MAIN/api/accounts/$ACCOUNT_ID/balance | jq .
+mcurl -s "$MAIN/api/accounts/$ACCOUNT_ID/entries?limit=5" | jq .
 ```
 Expected: `{"accountId":"<ACCOUNT_ID>","balanceCents":50000,"currency":"USD"}` and one entry `{"id":..,"transactionId":"<uuid>","accountId":"<ACCOUNT_ID>","direction":"credit","amountCents":50000,"createdAt":"..."}`.
 DB: `SELECT balance_cents FROM accounts WHERE id='<ACCOUNT_ID>';` -> `50000`.
@@ -141,7 +147,7 @@ DB: `SELECT balance_cents FROM accounts WHERE id='<ACCOUNT_ID>';` -> `50000`.
 ### Step 7: send $100 to Alice -> 201
 
 ```bash
-RESP=$(curl -s -w '\n%{http_code}' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{
+RESP=$(mcurl -s -w '\n%{http_code}' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{
  \"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$ALICE_ACC\",\"amountCents\":10000,\"idempotencyKey\":\"rahim-$RUN-1\"}")
 echo "${RESP##*$'\n'}"; echo "${RESP%$'\n'*}" | jq .
 export TXN1=$(echo "${RESP%$'\n'*}" | jq -r .transactionId)
@@ -159,8 +165,8 @@ Notification log: `EMAIL sent to rahim<RUN>@example.com subject='Transfer comple
 ### Step 8: both balances
 
 ```bash
-curl -s $MAIN/api/accounts/$ACCOUNT_ID/balance | jq -c .balanceCents   # 40000
-curl -s $MAIN/api/accounts/$ALICE_ACC/balance  | jq -c .balanceCents   # 110000
+mcurl -s $MAIN/api/accounts/$ACCOUNT_ID/balance | jq -c .balanceCents   # 40000
+mcurl -s $MAIN/api/accounts/$ALICE_ACC/balance  | jq -c .balanceCents   # 110000
 ```
 ```sql
 SELECT id, balance_cents FROM accounts WHERE id IN ('<ACCOUNT_ID>','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');  -- 40000 / 110000
@@ -169,9 +175,9 @@ SELECT id, balance_cents FROM accounts WHERE id IN ('<ACCOUNT_ID>','aaaaaaaa-aaa
 ### Step 9: duplicate idempotency key -> same transaction, no double debit
 
 ```bash
-curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{
+mcurl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{
  \"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$ALICE_ACC\",\"amountCents\":10000,\"idempotencyKey\":\"rahim-$RUN-1\"}"
-curl -s $MAIN/api/accounts/$ACCOUNT_ID/balance | jq -c .balanceCents
+mcurl -s $MAIN/api/accounts/$ACCOUNT_ID/balance | jq -c .balanceCents
 ```
 Status **`200`** (a new transfer is 201, an idempotent replay is 200), **same** `transactionId` as `$TXN1`; balance still `40000`.
 ```sql
@@ -185,7 +191,7 @@ Redis (Upstash console -> CLI): `GET idem:rahim-<RUN>-1` returns the cached JSON
 Rahim only has $400 left, so the $600 and $6000 transfers need a richer sender. Using the real API (not SQL) keeps the ledger reconcilable.
 
 ```bash
-RESP=$(curl -s -X POST $MAIN/api/accounts -H 'Content-Type: application/json' \
+RESP=$(mcurl -s -X POST $MAIN/api/accounts -H 'Content-Type: application/json' \
   -d "{\"customerId\":\"$ALICE_CUST\",\"accountType\":\"checking\",\"initialDepositCents\":1000000}")
 echo "$RESP" | jq .; export ALICE_ACC2=$(echo "$RESP" | jq -r .id)
 ```
@@ -194,7 +200,7 @@ Status `201`, `balanceCents: 1000000`, `accountNumber: ACC-0000000005`. (Seed cu
 ### Step 11: $600 to Bob -> 201
 
 ```bash
-curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{
+mcurl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{
  \"fromAccount\":\"$ALICE_ACC2\",\"toAccount\":\"$BOB_ACC\",\"amountCents\":60000,\"idempotencyKey\":\"alice-$RUN-600\"}"
 ```
 Status `201`, `amountCents: 60000`. Balances: Alice acc2 `940000`, Bob `110000`.
@@ -203,7 +209,7 @@ Fraud log: `FRAUD CHECK result=PASS txn=<id> ... amountCents=60000 rules=[]`. No
 ### Step 12: $6000 -> succeeds, fraud flags it
 
 ```bash
-RESP=$(curl -s -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{
+RESP=$(mcurl -s -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{
  \"fromAccount\":\"$ALICE_ACC2\",\"toAccount\":\"$BOB_ACC\",\"amountCents\":600000,\"idempotencyKey\":\"alice-$RUN-6000\"}")
 echo "$RESP" | jq .; export TXN6K=$(echo "$RESP" | jq -r .transactionId)
 ```
@@ -218,7 +224,7 @@ Balances: Alice acc2 `340000`, Bob `710000`.
 ### Step 13: $999,999 -> 422 insufficient funds
 
 ```bash
-curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{
+mcurl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{
  \"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$BOB_ACC\",\"amountCents\":99999900,\"idempotencyKey\":\"rahim-$RUN-big\"}"
 ```
 Status `422`. Body: `{"status":422,"message":"Insufficient funds","timestamp":"..."}`
@@ -246,28 +252,28 @@ Uses the variables from the top (`MAIN`, `ALICE_ACC`). Field names are camelCase
 
 ```bash
 # 1. create customer -> 201
-RESP=$(curl -s -X POST $MAIN/api/customers -H 'Content-Type: application/json' -d "{\"firstName\":\"Q\",\"lastName\":\"Check\",\"dateOfBirth\":\"1990-01-01\",\"mobileNo\":\"01$(printf '%09d' $((RANDOM*RANDOM % 1000000000)))\",\"idType\":\"nid\",\"idNumber\":\"Q$RUN\",\"addressLine1\":\"x\"}")
+RESP=$(mcurl -s -X POST $MAIN/api/customers -H 'Content-Type: application/json' -d "{\"firstName\":\"Q\",\"lastName\":\"Check\",\"dateOfBirth\":\"1990-01-01\",\"mobileNo\":\"01$(printf '%09d' $((RANDOM*RANDOM % 1000000000)))\",\"idType\":\"nid\",\"idNumber\":\"Q$RUN\",\"addressLine1\":\"x\"}")
 export CUSTOMER_ID=$(echo "$RESP" | jq -r .id)
-curl -s -X PATCH $MAIN/api/customers/$CUSTOMER_ID/kyc -H 'Content-Type: application/json' -d '{"kycStatus":"verified","verifiedBy":"officer-1"}' | jq -r .kycStatus   # verified
+mcurl -s -X PATCH $MAIN/api/customers/$CUSTOMER_ID/kyc -H 'Content-Type: application/json' -d '{"kycStatus":"verified","verifiedBy":"officer-1"}' | jq -r .kycStatus   # verified
 
 # 3. create account (needed before step 2 can use it) -> 201
-RESP=$(curl -s -X POST $MAIN/api/accounts -H 'Content-Type: application/json' -d "{\"customerId\":\"$CUSTOMER_ID\",\"accountType\":\"savings\",\"initialDepositCents\":50000}")
+RESP=$(mcurl -s -X POST $MAIN/api/accounts -H 'Content-Type: application/json' -d "{\"customerId\":\"$CUSTOMER_ID\",\"accountType\":\"savings\",\"initialDepositCents\":50000}")
 export ACCOUNT_ID=$(echo "$RESP" | jq -r .id)
 
 # 2. customer by account -> 200, body has "kycStatus":"verified"
-curl -s -w '\n%{http_code}\n' $MAIN/api/customers/by-account/$ACCOUNT_ID | jq .
+mcurl -s -w '\n%{http_code}\n' $MAIN/api/customers/by-account/$ACCOUNT_ID | jq .
 
 # 4. transfer $100 to Alice -> 201; then grep logs: Fraud "FRAUD CHECK result=PASS txn=<id>", Notification "EMAIL sent to"
-curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{\"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$ALICE_ACC\",\"amountCents\":10000,\"idempotencyKey\":\"q-$RUN-1\"}"
+mcurl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{\"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$ALICE_ACC\",\"amountCents\":10000,\"idempotencyKey\":\"q-$RUN-1\"}"
 
 # 6. same key again -> 200, SAME transactionId, ledger_entries count unchanged (2 for that transaction)
-curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{\"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$ALICE_ACC\",\"amountCents\":10000,\"idempotencyKey\":\"q-$RUN-1\"}"
+mcurl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{\"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$ALICE_ACC\",\"amountCents\":10000,\"idempotencyKey\":\"q-$RUN-1\"}"
 #    SQL: SELECT count(*) FROM ledger_entries WHERE account_id = '<ACCOUNT_ID>' AND direction = 'debit';   -- 1
 
 # 5. unverified customer -> 422. In the Supabase SQL Editor:
 #    UPDATE customers SET kyc_status = 'pending' WHERE id = '<CUSTOMER_ID>';
 #    then the Redis cache (kyc:<ACCOUNT_ID>, up to 600 s) must be cleared or expired first: Upstash CLI  DEL kyc:<ACCOUNT_ID>
-curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{\"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$ALICE_ACC\",\"amountCents\":100,\"idempotencyKey\":\"q-$RUN-2\"}"
+mcurl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{\"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$ALICE_ACC\",\"amountCents\":100,\"idempotencyKey\":\"q-$RUN-2\"}"
 #    -> 422 {"status":422,"message":"Customer KYC is not verified (status: pending)","timestamp":"..."}
 ```
 
@@ -277,7 +283,7 @@ If `CUSTOMER_SERVICE_URL` is set on the ledger and the Customer Service is aslee
 
 ## C) Render deployment
 
-**Repos:** keep the **monorepo** (`istiakahasan/Novo_Bank_Service_PLC`, branch `initial`/`main`) and give each service a Root Directory. Separate repos would force copy/paste of the Maven wrapper and the shared Customer/Ledger code, and Render free has no benefit from splitting.
+**Repos:** keep the **monorepo** (`istiakahasan/Novo_Bank_Service_PLC`, branch `initial`/`main`). `auth-service` uses Root Directory `auth-service`; the other three build from the repo root because they share the `security-starter` module (see `docs/AUTHORIZATION.md`). Separate repos would force copy/paste of the Maven wrapper and the shared Customer/Ledger code, and Render free has no benefit from splitting.
 
 **Runtime:** Render has no native Java runtime, only Docker. So there is no "build command / start command" box: use **Runtime = Docker**. The Dockerfiles run exactly the commands you asked for (`./mvnw clean package -DskipTests` at build, `java -jar app.jar` at start with `-Xmx384m`).
 
@@ -287,7 +293,7 @@ For each service: Render dashboard -> **New +** -> **Web Service** -> **Build an
 |---|---|---|---|
 | Name | `novo-bank` | `fraud-service` | `notification-service` |
 | Branch | `initial` | `initial` | `initial` |
-| Root Directory | *(blank)* | `fraud-service` | `notification-service` |
+| Root Directory | *(blank)* | *(blank)*; Dockerfile Path `./fraud-service/Dockerfile`; Docker Build Context Directory `.` | *(blank)*; Dockerfile Path `./notification-service/Dockerfile`; Docker Build Context Directory `.` |
 | Runtime | Docker | Docker | Docker |
 | Instance Type | Free | Free | Free |
 | Health Check Path (Advanced) | `/actuator/health` | `/actuator/health` | `/actuator/health` |
@@ -371,7 +377,7 @@ UptimeRobot (free, `https://uptimerobot.com`): **+ New monitor** -> Monitor Type
 - Failed deliveries to your endpoints (after retries) land in QStash -> **DLQ**.
 
 **Render**
-- Hibernation = first request after 15 min idle takes 30-60 s. Detect: `curl -s -o /dev/null -w '%{time_total}\n' $MAIN/actuator/health` (> 30 = it was asleep) or Render **Events**: `Service spun down due to inactivity`.
+- Hibernation = first request after 15 min idle takes 30-60 s. Detect: `mcurl -s -o /dev/null -w '%{time_total}\n' $MAIN/actuator/health` (> 30 = it was asleep) or Render **Events**: `Service spun down due to inactivity`.
 - Hours used: Dashboard -> Account/Workspace -> **Billing / Usage** (free instance hours).
 - Fix: UptimeRobot monitor (Part C), within the 750-hour limit.
 
@@ -383,7 +389,10 @@ UptimeRobot (free, `https://uptimerobot.com`): **+ New monitor** -> Monitor Type
 |---|---|---|
 | 502 Bad Gateway on Render | Service still booting/waking, crashed, or not listening on `$PORT` | Render -> Logs; wait 60 s and retry; if `APPLICATION FAILED TO START`, fix env vars (Part C). Dockerfile already binds `$PORT` |
 | First request takes 30-60 s | Free-tier hibernation | UptimeRobot monitor on `/actuator/health` |
-| Build fails `mvnw: not found` / `Could not find or load main class` | Wrong Root Directory | Settings -> Root Directory = blank (main) / `fraud-service` / `notification-service` -> Manual Deploy |
+| Build fails `mvnw: not found`, `security-starter` not found | Wrong Root Directory / Docker context | `novo-bank`: Root Directory blank. fraud/notification: Root Directory blank + Dockerfile Path `./<service>/Dockerfile` + Build Context `.`. auth-service: Root Directory `auth-service` -> Manual Deploy |
+| Every API call returns 401 | Missing/expired token, or `JWT_PUBLIC_KEY` on the main app does not match the auth-service `JWT_PRIVATE_KEY` pair | Log in again (tokens last 15 min); regenerate both with `scripts/gen-keys.sh` and redeploy auth + main app |
+| 403 on a call that should work | Wrong role or not the owner (CUSTOMER tokens only see their own `cid`) | Use a STAFF token, or check `SELECT customer_id FROM auth_users WHERE username=...` |
+| fraud/notification get 401 from the Customer API | `SERVICE_ID`/`SERVICE_KEY` missing or not listed in the main app `SYSTEM_KEYS` | Add the pair to both sides and redeploy |
 | QStash webhook returns 401 | Signing keys missing/wrong, or body modified by a proxy | Copy `QSTASH_CURRENT_SIGNING_KEY` and `QSTASH_NEXT_SIGNING_KEY` from QStash console (no spaces) to Render env; test with `scripts/qstash-curl.sh`; never set `QSTASH_VERIFY_SIGNATURES=false` in prod |
 | QStash message in DLQ / retries failing | Target asleep (timeouts) or 5xx | QStash -> DLQ -> **Retry**; check service Logs for the stack trace |
 | Customer Service returns 404 for valid UUID | UUID is an *account* id (use `/api/accounts/{id}/balance`) or a customer in another DB/project | `SELECT id FROM customers WHERE id='<uuid>';` and compare `SUPABASE_HOST` |
@@ -409,7 +418,7 @@ UptimeRobot (free, `https://uptimerobot.com`): **+ New monitor** -> Monitor Type
 
 Run after setting the variables at the top. Each line is pass/fail. `psql "$PSQL_URL" -tAc` prints one value.
 
-1. [ ] Main app up: `curl -s $MAIN/actuator/health | jq -e '.status=="UP"'`
+1. [ ] Main app up: `mcurl -s $MAIN/actuator/health | jq -e '.status=="UP"'`
 2. [ ] Fraud up: `curl -s $FRAUD/actuator/health | jq -e '.status=="UP"'`
 3. [ ] Notification up: `curl -s $NOTIF/actuator/health | jq -e '.status=="UP"'`
 4. [ ] Six tables exist: `psql "$PSQL_URL" -tAc "select count(*) from information_schema.tables where table_schema='public' and table_name in ('customers','accounts','transactions','ledger_entries','outbox','fraud_alerts')"` -> `6`
@@ -425,10 +434,10 @@ Run after setting the variables at the top. Each line is pass/fail. `psql "$PSQL
 14. [ ] Duplicate mobile 409 (Step 2)
 15. [ ] Account before KYC 422 (Step 3)
 16. [ ] KYC verify 200 and DB shows verified: `psql "$PSQL_URL" -tAc "select kyc_status from customers where id='$CUSTOMER_ID'"` -> `verified`
-17. [ ] Account open 201 with balance 50000: `curl -s $MAIN/api/accounts/$ACCOUNT_ID/balance | jq -e '.balanceCents==50000'`
-18. [ ] Transfer 201: `curl -s -X POST $MAIN/api/transfers ... | jq -e '.status=="completed"'`
+17. [ ] Account open 201 with balance 50000: `mcurl -s $MAIN/api/accounts/$ACCOUNT_ID/balance | jq -e '.balanceCents==50000'`
+18. [ ] Transfer 201: `mcurl -s -X POST $MAIN/api/transfers ... | jq -e '.status=="completed"'`
 19. [ ] Double entry: `psql "$PSQL_URL" -tAc "select count(*) from ledger_entries where transaction_id='$TXN1'"` -> `2`
-20. [ ] Balances after $100: `curl -s $MAIN/api/accounts/$ACCOUNT_ID/balance | jq -e '.balanceCents==40000'`
+20. [ ] Balances after $100: `mcurl -s $MAIN/api/accounts/$ACCOUNT_ID/balance | jq -e '.balanceCents==40000'`
 21. [ ] Idempotent replay: second POST returns HTTP `200`, `.transactionId == $TXN1`, and Rahim balance still `40000`
 22. [ ] One transaction row per key: `psql "$PSQL_URL" -tAc "select count(*) from transactions where idempotency_key='rahim-$RUN-1'"` -> `1`
 23. [ ] Redis idempotency cache: `curl -s -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN" $UPSTASH_REDIS_REST_URL/get/idem:rahim-$RUN-1 | jq -e '.result!=null'`

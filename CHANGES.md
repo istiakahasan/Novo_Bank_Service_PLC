@@ -1,5 +1,22 @@
 # Changes
 
+## 2026-11-05 - Access authorization layer
+
+- New `security-starter/` (Maven library): `JwtAuthenticationFilter`, `SystemKeyAuthenticationFilter`, `JwtVerifier` (RS256, local verification, rotation with a second public key), `RoleExtractor` (SYSTEM can never come from a user token), `UnauthorizedHandler` (401), `ForbiddenHandler` (403), `SecurityBaseline`, `SystemAuthInterceptor`, Redis revocation check, auto-configuration `SecurityConfig`.
+- New `auth-service/` (port 3007): `POST /auth/login`, `/auth/refresh` (single-use rotation + reuse detection revokes all sessions), `/auth/logout` (Redis `revoked:jti:{jti}`), `POST /auth/users` (STAFF only), `GET /auth/public-key`, login rate limit (5 failures / 15 min), first-run bootstrap users. Tables in `db/003_auth.sql`.
+- Main app: `ServiceSecurityConfig` (role per route, `denyAll` default), `AccessPolicy` ownership checks via `@PreAuthorize` on customer, transfer and account controllers. Fraud/notification: webhooks `permitAll` (signature is the authentication), everything else denied.
+- Service-to-service: `X-Service-Id` / `X-Service-Key` with multi-key rotation (`SYSTEM_KEYS`, `SERVICE_ID`, `SERVICE_KEY`); interceptor attached only to the Customer-Service clients (fraud, notification, ledger HTTP mode).
+- Dockerfiles of main app, fraud and notification now build `security-starter` first (fraud/notification must use the repo root as Docker build context on Render).
+- Scripts/docs: `scripts/gen-keys.sh`, `scripts/attack-tests.sh` (10 scenarios), `docs/AUTHORIZATION.md`; `scripts/e2e.sh` and `docs/RUNBOOK.md` now authenticate as STAFF.
+- Behaviour change: all main-app endpoints now return 401 without a valid token; only STAFF can create customers and verify KYC.
+- Deviations from the brief:
+  - Self-issued JWT chosen (Keycloak does not fit 512 MB; Supabase Auth would add a second identity store).
+  - QStash verification kept as the real JWT-based check; a bare HMAC of the body would reject genuine QStash requests.
+  - SYSTEM auth uses per-service shared-secret headers, not a token from the auth server, so it works while the auth server sleeps.
+  - Customer and Ledger are one JVM, so there are five Render services, not four.
+  - Extra endpoint rows in the matrix: `PATCH /aml-risk` and `/actuator/health`.
+- Verified: all modules build; tests: starter 8, auth 9, main app 34 (13 authorization), fraud 14, notification 10. `scripts/*.sh` pass `bash -n`; generated keys checked against the Java key parser. NOT run against live Render/Supabase/Redis; Docker builds not run locally.
+
 ## 2026-11-05 - Sync KYC lookup (HTTP-capable), 503 handling, replay semantics
 
 - Added `KycLookup` with `LocalKycLookup` (default, in-process) and `HttpKycLookup` (selected when `CUSTOMER_SERVICE_URL` is set; RestClient, 5 s timeouts; 404 -> 404, timeout/5xx -> 503).
