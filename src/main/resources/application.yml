@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: customer-service
+  datasource:
+    url: jdbc:postgresql://${SUPABASE_HOST}:5432/postgres
+    username: ${SUPABASE_DB_USER:postgres}
+    password: ${SUPABASE_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 5
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+      ssl:
+        enabled: ${REDIS_SSL:true}
+      timeout: 3s
+
+server:
+  port: ${PORT:3003}
+
+qstash:
+  topic-url: ${QSTASH_TOPIC_URL}
+  token: ${QSTASH_TOKEN}
