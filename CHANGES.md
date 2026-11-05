@@ -1,5 +1,22 @@
 # Changes
 
+## 2026-11-05 — Fraud and Notification services
+
+- New `fraud-service/` (port 3005) and `notification-service/` (port 3006): independent Maven projects, Java 17 / Boot 3.2.12, own Dockerfile and Maven wrapper.
+- Fraud: `FraudRuleEngine` (HIGH_VALUE > $5,000, VELOCITY > 10 in 60 s via Redis, HIGH_RISK_CUSTOMER via Customer Service, cached 300 s), `FraudService`, `FraudAlert` entity, onboarding risk scoring (PEP / high country risk -> aml_risk_rating=high).
+- Notification: `NotificationService` (email via JavaMailSender, SMS log stub), `CustomerLookupService` (Redis cache 600 s), `MailConfig` from `MAIL_*` env vars.
+- Both: `QStashSignatureVerifier`, webhook controllers, `WebhookExceptionHandler`, Redis dedupe against QStash retries.
+- Main app: new `GET /api/customers/by-account/{accountId}` and `PATCH /api/customers/{id}/aml-risk` (needed by the webhooks; not in the original brief).
+- Main app event payloads changed to the snake_case contract with an `event` field (ledger `transfer.completed`, customer `customer.created`/`kyc.verified`; customer.created now includes `display_name` and `email`).
+- Added `db/002_fraud_alerts.sql`, `docs/QSTASH_WIRING.md`, `scripts/qstash-curl.sh`, new env vars in `.env.example`.
+- Deviations from the brief:
+  - Signature check is JWT-based, not "HMAC of body vs header": QStash's `Upstash-Signature` is an HS256 JWT. Header name is `Upstash-Signature` (not `QStash-Signature`).
+  - Topics are called URL Groups in the Upstash console; the publish URL is `https://qstash.upstash.io/v2/publish/banking-events`.
+  - Webhooks ignore events that were fanned out to the wrong endpoint (returns 200 `{"ignored":true}`).
+  - Alert writes are synchronous (a single insert is fast); no `@Async`.
+  - The payload has no `is_pep`/`country_risk` today, so onboarding scoring only escalates if a publisher adds those fields.
+- Verified: all three modules build; unit tests pass (fraud 11, notification 7, main app 11). `scripts/qstash-curl.sh` output checked independently with Python. NOT verified: running against live Supabase/Redis/QStash/Mailtrap.
+
 ## 2026-11-05 — Ledger Service
 
 - Added `ledger` packages: entities (Account, Transaction, LedgerEntry, OutboxEvent), repositories, DTO records, mapper, `TransferService`, `OutboxPublisher` (@Scheduled 5 s), `EventPublisher`, controllers, scoped exception handlers, `RedisConfig`, `SchedulingConfig`.

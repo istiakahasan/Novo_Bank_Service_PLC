@@ -14,11 +14,25 @@ Get-Content .env | Where-Object { $_ -match '^[^#].*=' } | ForEach-Object { $k,$
 ./mvnw spring-boot:run
 ```
 
+## Services
+
+| Service | Folder | Port | Role |
+|---|---|---|---|
+| Customer + Ledger | repo root | 3003 | REST API, publishes events to QStash |
+| Fraud | `fraud-service/` | 3005 | QStash webhooks: HIGH_VALUE / VELOCITY / HIGH_RISK_CUSTOMER rules, onboarding risk scoring |
+| Notification | `notification-service/` | 3006 | QStash webhooks: transfer + welcome emails (Mailtrap), SMS stub |
+
+Event flow: main app -> QStash URL group `banking-events` -> 4 webhook endpoints. Setup, retry/DLQ notes, signature verification and 4 test curls: [docs/QSTASH_WIRING.md](docs/QSTASH_WIRING.md). Build each service with `./mvnw package` inside its folder.
+
+New endpoints on the main app for the webhooks: `GET /api/customers/by-account/{accountId}`, `PATCH /api/customers/{id}/aml-risk` (`{"amlRiskRating":"low|medium|high"}`).
+
 ## Layout
 
 | Path | Purpose |
 |---|---|
 | `db/schema.sql` | Tables, indexes, append-only ledger rules, balance functions |
+| `db/002_fraud_alerts.sql` | `fraud_alerts` table (run after schema.sql) |
+| `scripts/qstash-curl.sh` | Sends a correctly signed fake QStash request |
 | `db/seed.sql` | Alice $1000, Bob $500, Charlie $200 with fixed UUIDs |
 | `docs/SETUP.md` | Click-by-click infrastructure guide |
 | `Dockerfile` | Render build (JVM capped at 384 MB) |

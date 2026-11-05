@@ -40,16 +40,17 @@ public class EventPublisher {
     /** JSON stored in outbox.payload. */
     public String transferCompletedPayload(Transaction tx, LedgerEntry debit, LedgerEntry credit) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("eventType", TRANSFER_COMPLETED);
-        payload.put("transactionId", tx.getId());
-        payload.put("idempotencyKey", tx.getIdempotencyKey());
-        payload.put("fromAccount", tx.getFromAccount());
-        payload.put("toAccount", tx.getToAccount());
-        payload.put("amountCents", tx.getAmountCents());
+        // Wire contract consumed by fraud-service and notification-service (snake_case).
+        payload.put("event", TRANSFER_COMPLETED);
+        payload.put("transaction_id", tx.getId());
+        payload.put("from_account", tx.getFromAccount());
+        payload.put("to_account", tx.getToAccount());
+        payload.put("amount_cents", tx.getAmountCents());
+        payload.put("created_at", (tx.getCreatedAt() != null ? tx.getCreatedAt() : OffsetDateTime.now()).toString());
+        payload.put("idempotency_key", tx.getIdempotencyKey());
         payload.put("status", tx.getStatus());
-        payload.put("debitEntryId", debit.getId());
-        payload.put("creditEntryId", credit.getId());
-        payload.put("occurredAt", OffsetDateTime.now().toString());
+        payload.put("debit_entry_id", debit.getId());
+        payload.put("credit_entry_id", credit.getId());
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException e) {

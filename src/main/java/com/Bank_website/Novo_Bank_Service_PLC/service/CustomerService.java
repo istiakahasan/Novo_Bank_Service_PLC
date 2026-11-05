@@ -63,6 +63,21 @@ public class CustomerService {
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found for mobile: " + mobileNo)));
     }
 
+    @Transactional(readOnly = true)
+    public CustomerResponse getByAccountId(UUID accountId) {
+        return mapper.toResponse(repository.findByAccountId(accountId)
+                .orElseThrow(() -> new ResourceNotFoundException("Customer not found for account: " + accountId)));
+    }
+
+    @Transactional
+    public CustomerResponse updateAmlRisk(UUID id, String amlRiskRating) {
+        Customer customer = repository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Customer not found: " + id));
+        customer.setAmlRiskRating(amlRiskRating);
+        customer.setUpdatedAt(OffsetDateTime.now());
+        return mapper.toResponse(repository.save(customer));
+    }
+
     @Transactional
     public CustomerResponse updateKyc(UUID id, KycUpdateRequest request) {
         Customer customer = repository.findById(id)
