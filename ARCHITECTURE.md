@@ -80,6 +80,10 @@ Client ──HTTPS──▶ Render (Spring Boot, free, sleeps 15 min)
 - Shared code lives in `security-starter` (Maven library): filters, verifier, handlers, service-key interceptor.
 - Full matrix and rotation procedures: `docs/AUTHORIZATION.md`.
 
+## Support service
+
+`support-service` (:3007): `support_tickets` + append-only `ticket_messages` (database rules block UPDATE/DELETE). CUSTOMER sees own tickets, STAFF all; status only moves one step forward. It subscribes to the `banking-events` topic (`/webhooks/transfer-completed`, Upstash-Signature verified before any Redis/DB/customer-API access) and publishes `ticket.created` / `ticket.status_changed` back to the same topic after commit. It resolves the customer through the Customer API with its SYSTEM service key (`support-service`). Auto-creation is idempotent (existing ticket for `related_transaction_id`, plus a short Redis lock). See `docs/SUPPORT_SERVICE.md`.
+
 ## Data governance
 
 Full inventory, lineage, PII leak audit, retention schedule and gap analysis: `docs/DATA_GOVERNANCE.md`.
