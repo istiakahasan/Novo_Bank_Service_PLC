@@ -83,7 +83,7 @@ SELECT customer_number, kyc_status, aml_risk_rating, status FROM customers WHERE
 -- CIF-000004 | pending | low | active
 ```
 Fraud log: `Customer <CUSTOMER_ID> scored low risk`
-Notification log: `EMAIL sent to rahim<RUN>@example.com subject='Welcome to Novo Bank'`
+Notification log: `EMAIL sent to r***@example.com subject='Welcome to Novo Bank'` (addresses are masked in logs)
 
 ### Step 2: duplicate mobile -> 409
 
@@ -160,7 +160,7 @@ SELECT direction, account_id, amount_cents FROM ledger_entries WHERE transaction
 -- debit  | <ACCOUNT_ID> | 10000
 ```
 Fraud log: `FRAUD CHECK result=PASS txn=<TXN1> account=<ACCOUNT_ID> amountCents=10000 rules=[]`
-Notification log: `EMAIL sent to rahim<RUN>@example.com subject='Transfer completed'` and `SMS to <MOBILE>: Txn <TXN1> of $100.00 completed`
+Notification log: `EMAIL sent to r***@example.com subject='Transfer completed'` and `SMS to 01xxx***yyy: Txn <TXN1> of $100.00 completed` (mobile masked to the first 5 and last 3 digits)
 
 ### Step 8: both balances
 
@@ -204,7 +204,7 @@ mcurl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: app
  \"fromAccount\":\"$ALICE_ACC2\",\"toAccount\":\"$BOB_ACC\",\"amountCents\":60000,\"idempotencyKey\":\"alice-$RUN-600\"}"
 ```
 Status `201`, `amountCents: 60000`. Balances: Alice acc2 `940000`, Bob `110000`.
-Fraud log: `FRAUD CHECK result=PASS txn=<id> ... amountCents=60000 rules=[]`. Notification: `EMAIL sent to alice@example.com subject='Transfer completed'`.
+Fraud log: `FRAUD CHECK result=PASS txn=<id> ... amountCents=60000 rules=[]`. Notification: `EMAIL sent to a***@example.com subject='Transfer completed'`.
 
 ### Step 12: $6000 -> succeeds, fraud flags it
 
@@ -446,6 +446,6 @@ Run after setting the variables at the top. Each line is pass/fail. `psql "$PSQL
 26. [ ] Outbox drained: `psql "$PSQL_URL" -tAc "select count(*) from outbox where published=false and created_at < now() - interval '1 minute'"` -> `0`
 27. [ ] Ledger reconciles with balances (Step 14 query returns no row where `balance_cents <> ledger_net`): `psql "$PSQL_URL" -tAc "select count(*) from (select a.balance_cents, coalesce(sum(case l.direction when 'credit' then l.amount_cents else -l.amount_cents end),0) n from accounts a left join ledger_entries l on l.account_id=a.id where a.account_number like 'ACC-%' group by a.id,a.balance_cents) t where balance_cents<>n"` -> `0`
 28. [ ] Fraud saw the event: Render fraud Logs contain `FRAUD CHECK result=PASS txn=<TXN1>`
-29. [ ] Notification sent the email: Notification Logs contain `EMAIL sent to rahim<RUN>@example.com subject='Transfer completed'` and Mailtrap inbox shows it
+29. [ ] Notification sent the email: Notification Logs contain `EMAIL sent to r***@example.com subject='Transfer completed'` and the Mailtrap inbox shows the full message
 30. [ ] Keep-alive workflow green: `gh run list --workflow=supabase-keepalive.yml -L 1 --json conclusion -q '.[0].conclusion'` -> `success`
 31. [ ] All unit tests green in CI/locally: `./mvnw -q package && (cd fraud-service && ./mvnw -q package) && (cd notification-service && ./mvnw -q package)` exits 0
