@@ -28,3 +28,15 @@ qstash:
   verify-signatures: ${QSTASH_VERIFY_SIGNATURES:true}
   current-signing-key: ${QSTASH_CURRENT_SIGNING_KEY:}
   next-signing-key: ${QSTASH_NEXT_SIGNING_KEY:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+  health:
+    mail:
+      enabled: false

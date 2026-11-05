@@ -1,5 +1,21 @@
 # Changes
 
+## 2026-11-05 - Final integration and runbook
+
+- Ledger: `KycGateway` + `KycNotVerifiedException` (422): senders must be KYC-verified; `kyc:{customerId}` cached 600 s (verified only).
+- Ledger: `POST /api/accounts` (`CreateAccountRequest`, `AccountResponse`, `AccountService`), opening-deposit ledger credit via synthetic transaction, `account.created` outbox event.
+- Actuator `/actuator/health` on all three services (for UptimeRobot / Render health check); mail health indicator disabled.
+- Log lines for end-to-end tracing: `FRAUD CHECK`, `EMAIL sent`, `IGNORED event=...`.
+- Dockerfiles use `./mvnw clean package -DskipTests`.
+- Added `docs/RUNBOOK.md`, `scripts/e2e.sh`, `.github/workflows/supabase-keepalive.yml`.
+- Deviations from the brief:
+  - Customer + Ledger are one deployable, so the KYC lookup is an in-process call to `CustomerService` rather than HTTP to `/by-account` (the endpoint still exists for fraud/notification).
+  - Render has no native Java runtime: Docker is used, so "build/start command" are the Dockerfile steps.
+  - Monorepo kept (Root Directory per service) instead of separate repos.
+  - Scenario step "$600 to Bob" uses a funded second Alice account, because Rahim only has $400 after the $100 transfer.
+  - Keeping all three services warm 24/7 exceeds Render's 750 free hours/month; the runbook recommends warming only the main app.
+- Verified: all modules build, unit tests pass (main app 16, fraud 11, notification 7); `scripts/e2e.sh` passes `bash -n`. NOT run against live infrastructure.
+
 ## 2026-11-05 — Fraud and Notification services
 
 - New `fraud-service/` (port 3005) and `notification-service/` (port 3006): independent Maven projects, Java 17 / Boot 3.2.12, own Dockerfile and Maven wrapper.

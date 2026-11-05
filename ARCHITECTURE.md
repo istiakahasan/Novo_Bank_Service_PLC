@@ -77,6 +77,11 @@ Customer/Ledger (Render) --publish--> QStash URL group "banking-events"
 - Requests are authenticated with the `Upstash-Signature` JWT (HS256, current/next signing key, body-hash claim).
 - Each service is an independent Maven project (own Dockerfile, Render root directory); they share the Supabase DB (fraud only) and Upstash Redis.
 
+## KYC gate and account opening
+
+- `KycGateway` (ledger) is called inside the transfer DB transaction before the transaction row is inserted. It reads Redis `kyc:{customerId}` (600 s) and otherwise asks `CustomerService` in-process. Only `verified` is cached, so approvals apply immediately.
+- `AccountService.createAccount` writes account + opening credit (synthetic transaction, from = to = new account) + `account.created` outbox row atomically.
+
 ## Status
 
 Infrastructure and schema are defined. Customer and ledger services are implemented and unit-tested; not yet run against live Supabase/Upstash.
