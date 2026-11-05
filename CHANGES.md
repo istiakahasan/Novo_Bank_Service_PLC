@@ -1,5 +1,15 @@
 # Changes
 
+## 2026-11-05 — Customer Service
+
+- Downgraded to Spring Boot 3.2.12 / Java 17 per spec; removed security, oauth2 and lombok deps.
+- Added entity, repository, DTO records, mapper, service, `EventPublisher` (QStash via RestClient), controller, exception handler, `application.yml` (replaces `application.properties`), unit tests.
+- `customers` table now matches the spec (display_name, date_of_birth, id_type, id_number NOT NULL; email nullable; aml_risk_rating VARCHAR(10)). If you already ran the old `db/schema.sql`, drop and recreate the tables.
+- Env vars renamed: `SUPABASE_HOST`, `SUPABASE_DB_USER`, `SUPABASE_DB_PASSWORD`, `QSTASH_TOPIC_URL`, `QSTASH_TOKEN`, `PORT`.
+- Seed mobile numbers changed to `+880170000001..3` (valid for the mobile pattern).
+- Extras beyond spec: `DataIntegrityViolationException` -> 409 (race safety), publish failures are logged and do not roll back writes.
+- Verified: `./mvnw package` compiles and 4 unit tests pass. Not run against a live DB.
+
 ## 2026-11-05 — Infrastructure and schema setup
 
 Added

@@ -1,6 +1,6 @@
 # Novo Bank Service PLC
 
-Banking prototype: Spring Boot 4 (Java 25) on Render, PostgreSQL on Supabase, Redis + QStash on Upstash — all free tier.
+Banking prototype: Spring Boot 3.2 (Java 17) on Render, PostgreSQL on Supabase, Redis + QStash on Upstash — all free tier.
 
 ## Quick start
 
@@ -38,4 +38,19 @@ Get-Content .env | Where-Object { $_ -match '^[^#].*=' } | ForEach-Object { $k,$
 
 - Money is stored as integer cents (`BIGINT`).
 - `ddl-auto=validate`: the app never changes the schema; `db/schema.sql` is the source of truth.
-- The context-load test needs the `DATABASE_*` variables set.
+- Tests are plain unit tests (Mockito); no database needed. Build: `./mvnw package`.
+
+## Customer API (port 3003)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/customers` | 201; 400 validation, 409 duplicate mobile/ID |
+| GET | `/api/customers/{id}` | 404 if missing |
+| GET | `/api/customers/by-mobile/{mobileNo}` | 404 if missing |
+| PATCH | `/api/customers/{id}/kyc` | `verified`/`rejected`; 422 unless current status is `pending` |
+
+```bash
+curl -i -X POST http://localhost:3003/api/customers -H "Content-Type: application/json" -d '{"firstName":"Rahim","lastName":"Uddin","dateOfBirth":"1992-04-10","mobileNo":"01712345678","email":"rahim@example.com","idType":"nid","idNumber":"1990123456789","addressLine1":"House 1, Road 2, Dhaka"}'
+```
+
+`addressLine1` is validated but not stored: the `customers` table has no address column.

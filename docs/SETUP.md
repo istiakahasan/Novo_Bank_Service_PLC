@@ -13,7 +13,7 @@ Do the services in this order. Keep a text file open (e.g. `.env` in the project
 3. Click **New project**. If asked, create an **Organization** first: name `novo`, type **Personal**, plan **Free**, click **Create organization**.
 4. Fill the form:
    - **Name**: `novo-bank`
-   - **Database Password**: click **Generate a password**, then click the copy icon. **Paste it into your `.env` as `DATABASE_PASSWORD` right now** — you cannot view it again later (only reset).
+   - **Database Password**: click **Generate a password**, then click the copy icon. **Paste it into your `.env` as `SUPABASE_DB_PASSWORD` right now** — you cannot view it again later (only reset).
    - **Region**: choose the one closest to you (Render region should be similar).
    - **Pricing plan**: Free.
 5. Click **Create new project**. Wait ~2 minutes until the green "Project is ready" state shows.
@@ -26,9 +26,9 @@ Do the services in this order. Keep a text file open (e.g. `.env` in the project
 
 | Dashboard field | Env var | Where to paste |
 |---|---|---|
-| Connect → JDBC → Session pooler (host/port/db) | `DATABASE_URL` = `jdbc:postgresql://HOST:5432/postgres` | `.env`, Render env vars |
-| Connect → user (`postgres.<ref>`) | `DATABASE_USERNAME` | `.env`, Render env vars |
-| Database password from step 4 (Project Settings → Database → Reset database password if lost) | `DATABASE_PASSWORD` | `.env`, Render env vars |
+| Connect → JDBC → Session pooler (host/port/db) | `SUPABASE_HOST` (host only, e.g. `aws-0-<region>.pooler.supabase.com`) | `.env`, Render env vars |
+| Connect → user (`postgres.<ref>`) | `SUPABASE_DB_USER` | `.env`, Render env vars |
+| Database password from step 4 (Project Settings → Database → Reset database password if lost) | `SUPABASE_DB_PASSWORD` | `.env`, Render env vars |
 
 **Limits & failure**
 | Limit | What breaks | How to detect |
@@ -98,7 +98,7 @@ Outbox rows stay `published=false` when publishing fails, so nothing is lost —
 3. Click **New +** → **Web Service** → **Build and deploy from a Git repository** → **Next**.
 4. Click **Connect** next to `Novo_Bank_Service_PLC` (click **Configure account** first if the repo isn't listed, and grant access).
 5. Settings: **Name** `novo-bank-service-plc`; **Language/Runtime** **Docker** (Render auto-detects the `Dockerfile`); **Region** same as Supabase; **Instance Type** **Free**.
-6. Expand **Advanced** → **Add Environment Variable** and add every variable from `.env` (DATABASE_URL, DATABASE_USERNAME, DATABASE_PASSWORD, UPSTASH_*, REDIS_URL, QSTASH_*). Set `APP_PUBLIC_URL` after step 8.
+6. Expand **Advanced** → **Add Environment Variable** and add every variable from `.env` (SUPABASE_HOST, SUPABASE_DB_USER, SUPABASE_DB_PASSWORD, UPSTASH_*, REDIS_URL, QSTASH_*). Set `APP_PUBLIC_URL` after step 8.
 7. Click **Create Web Service**. Watch **Logs** until you see `Started NovoBankServicePlcApplication`.
 8. Copy the URL at the top (`https://novo-bank-service-plc.onrender.com`) → set `APP_PUBLIC_URL` in Render → **Environment** → **Save, rebuild, and deploy**.
 
@@ -120,9 +120,9 @@ Outbox rows stay `published=false` when publishing fails, so nothing is lost —
 
 | From Service | To Service | Credential Name | Env Var Name | Where to Paste |
 |---|---|---|---|---|
-| Supabase | Spring Boot app | Session pooler JDBC URL | `DATABASE_URL` | `.env`, Render env |
-| Supabase | Spring Boot app | Pooler username `postgres.<ref>` | `DATABASE_USERNAME` | `.env`, Render env |
-| Supabase | Spring Boot app | Database password | `DATABASE_PASSWORD` | `.env`, Render env |
+| Supabase | Spring Boot app | Session pooler JDBC URL | `SUPABASE_HOST` | `.env`, Render env |
+| Supabase | Spring Boot app | Pooler username `postgres.<ref>` | `SUPABASE_DB_USER` | `.env`, Render env |
+| Supabase | Spring Boot app | Database password | `SUPABASE_DB_PASSWORD` | `.env`, Render env |
 | Upstash Redis | Spring Boot app | REST URL | `UPSTASH_REDIS_REST_URL` | `.env`, Render env |
 | Upstash Redis | Spring Boot app | REST token | `UPSTASH_REDIS_REST_TOKEN` | `.env`, Render env |
 | Upstash Redis | Spring Boot app | TCP `rediss://` URL | `REDIS_URL` | `.env`, Render env |
