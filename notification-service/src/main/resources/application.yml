@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: notification-service
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+      ssl:
+        enabled: ${REDIS_SSL:true}
+      timeout: 3s
+
+server:
+  port: ${PORT:3006}
+
+customer:
+  service:
+    url: ${CUSTOMER_SERVICE_URL}
+
+mail:
+  host: ${MAIL_HOST:smtp.mailtrap.io}
+  port: ${MAIL_PORT:2525}
+  username: ${MAIL_USERNAME:}
+  password: ${MAIL_PASSWORD:}
+  from: ${MAIL_FROM:noreply@novobank.test}
+
+qstash:
+  verify-signatures: ${QSTASH_VERIFY_SIGNATURES:true}
+  current-signing-key: ${QSTASH_CURRENT_SIGNING_KEY:}
+  next-signing-key: ${QSTASH_NEXT_SIGNING_KEY:}

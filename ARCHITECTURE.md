@@ -51,6 +51,32 @@ A relay (called by a QStash schedule or after commit) reads `outbox WHERE publis
 | Supabase pauses after 7 days idle | Scheduled ping hitting the DB |
 | 512 MB RAM | `-Xmx384m`, SerialGC, Hikari pool of 5 |
 
+## Ledger service implementation notes
+
+- Packages: `...Novo_Bank_Service_PLC.ledger.*` (transfers/accounts) next to the customer packages; one Spring Boot app, one port, one Render service (free tier allows one always-on-ish instance anyway).
+- Transfer order: Redis idempotency check -> `SET lock:{from} token NX EX 5` -> DB transaction (validate accounts, balance check, insert transaction, debit + credit ledger rows, atomic `UPDATE ... WHERE balance_cents >= :amt`, outbox row) -> COMMIT -> cache result in Redis (TTL 3600 s) -> release lock.
+- Lock is released with a compare-and-delete Lua script so an expired lock re-acquired by another request is never deleted.
+- The DB transaction uses `TransactionTemplate`, not `@Transactional` on the method, so the lock is held until after COMMIT.
+- Idempotency is enforced twice: Redis cache and `UNIQUE(idempotency_key)`; on a DB duplicate the original transaction is returned.
+- `OutboxPublisher` polls every 5 s (`fixedDelay`), POSTs to QStash with `Upstash-Deduplication-Id: outbox-{id}`, marks `published=true` only on success.
+
+## Event consumers
+
+```
+Customer/Ledger (Render) --publish--> QStash URL group "banking-events"
+        |--> fraud-service        /webhooks/transfer-completed   (rules 1-3, fraud_alerts)
+        |--> notification-service /webhooks/transfer-completed   (email + SMS stub)
+        |--> fraud-service        /webhooks/customer-created     (onboarding risk score)
+        |--> notification-service /webhooks/customer-created     (welcome email)
+```
+
+- Wire format is snake_case JSON with an `event` field (`transfer.completed`, `customer.created`, `kyc.verified`).
+- QStash fans out every message to every endpoint, so each webhook ignores foreign `event` values with a 200.
+- Delivery is at-least-once. Fraud/notification dedupe with Redis keys (`fraud_done:`, `notif_done:`, `welcome_done:`).
+- Fraud rule 3 and the notification email need customer data: they call `GET /api/customers/by-account/{id}` (cached 300 s / 600 s). Rule 3 fails open if the customer service is down; notifications propagate the error so QStash retries.
+- Requests are authenticated with the `Upstash-Signature` JWT (HS256, current/next signing key, body-hash claim).
+- Each service is an independent Maven project (own Dockerfile, Render root directory); they share the Supabase DB (fraud only) and Upstash Redis.
+
 ## Status
 
-Infrastructure and schema are defined. Application code (entities, transfer service, outbox relay) is not yet implemented.
+Infrastructure and schema are defined. Customer and ledger services are implemented and unit-tested; not yet run against live Supabase/Upstash.
