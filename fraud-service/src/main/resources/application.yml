@@ -1,4 +1,6 @@
 spring:
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   application:
     name: fraud-service
   datasource:
@@ -51,3 +53,10 @@ management:
   health:
     mail:
       enabled: false
+
+security:
+  jwt:
+    public-key: ${JWT_PUBLIC_KEY:}
+  system:
+    service-id: ${SERVICE_ID:}
+    service-key: ${SERVICE_KEY:}
