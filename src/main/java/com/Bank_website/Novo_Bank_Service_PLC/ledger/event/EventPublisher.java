@@ -1,5 +1,6 @@
 package com.Bank_website.Novo_Bank_Service_PLC.ledger.event;
 
+import com.Bank_website.Novo_Bank_Service_PLC.ledger.entity.Account;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.entity.LedgerEntry;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.entity.Transaction;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -21,6 +22,7 @@ import java.util.Map;
 public class EventPublisher {
 
     public static final String TRANSFER_COMPLETED = "transfer.completed";
+    public static final String ACCOUNT_CREATED = "account.created";
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -51,6 +53,23 @@ public class EventPublisher {
         payload.put("status", tx.getStatus());
         payload.put("debit_entry_id", debit.getId());
         payload.put("credit_entry_id", credit.getId());
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Cannot serialise outbox payload", e);
+        }
+    }
+
+    /** JSON stored in outbox.payload for account.created. */
+    public String accountCreatedPayload(Account account, long initialDepositCents) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("event", ACCOUNT_CREATED);
+        payload.put("account_id", account.getId());
+        payload.put("customer_id", account.getCustomerId());
+        payload.put("account_number", account.getAccountNumber());
+        payload.put("account_type", account.getAccountType());
+        payload.put("initial_deposit_cents", initialDepositCents);
+        payload.put("created_at", account.getCreatedAt().toString());
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException e) {

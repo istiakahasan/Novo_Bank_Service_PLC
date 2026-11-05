@@ -29,6 +29,11 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
     }
 
+    @ExceptionHandler(KycNotVerifiedException.class)
+    public ResponseEntity<ErrorResponse> handleKyc(KycNotVerifiedException ex) {
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+    }
+
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex) {
         return build(HttpStatus.CONFLICT, ex.getMessage());

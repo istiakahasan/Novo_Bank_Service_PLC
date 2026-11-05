@@ -26,6 +26,13 @@ Event flow: main app -> QStash URL group `banking-events` -> 4 webhook endpoints
 
 New endpoints on the main app for the webhooks: `GET /api/customers/by-account/{accountId}`, `PATCH /api/customers/{id}/aml-risk` (`{"amlRiskRating":"low|medium|high"}`).
 
+## Runbook and end-to-end test
+
+[docs/RUNBOOK.md](docs/RUNBOOK.md): integration changes, the 14-step Rahim scenario (curl + expected output + SQL + log lines), Render deployment, free-tier monitoring, troubleshooting table and a 31-item verification checklist.
+Automated: `MAIN=https://... FRAUD=https://... NOTIF=https://... PSQL_URL=postgresql://... scripts/e2e.sh`.
+
+New: `POST /api/accounts` (`{"customerId","accountType":"savings|checking","initialDepositCents"}`, customer must be KYC-verified). Transfers from a customer whose KYC is not `verified` now fail with 422. Health: `GET /actuator/health` on all three services.
+
 ## Layout
 
 | Path | Purpose |

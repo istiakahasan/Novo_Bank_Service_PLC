@@ -102,6 +102,7 @@ public class NotificationService {
         message.setSubject(subject);
         message.setText(text);
         mailSender.send(message);
+        log.info("EMAIL sent to {} subject='{}'", to, subject);
     }
 
     static String money(long cents) {
