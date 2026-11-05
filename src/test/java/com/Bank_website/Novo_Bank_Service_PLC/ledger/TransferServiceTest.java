@@ -104,8 +104,10 @@ class TransferServiceTest {
         when(accounts.decrementBalance(from, 25_000L)).thenReturn(1);
         when(accounts.incrementBalance(to, 25_000L)).thenReturn(1);
 
-        TransferResponse r = service.executeTransfer(req(25_000));
+        TransferService.TransferOutcome o = service.transfer(req(25_000));
+        TransferResponse r = o.response();
 
+        assertFalse(o.replayed());
         assertEquals("completed", r.status());
         assertEquals(25_000L, r.amountCents());
         verify(entries, org.mockito.Mockito.times(2)).save(any(LedgerEntry.class));
@@ -120,8 +122,10 @@ class TransferServiceTest {
                 java.time.OffsetDateTime.now());
         when(ops.get("idem:key-1")).thenReturn(json.writeValueAsString(cached));
 
-        TransferResponse r = service.executeTransfer(req(5));
+        TransferService.TransferOutcome o = service.transfer(req(5));
+        TransferResponse r = o.response();
 
+        assertTrue(o.replayed());
         assertEquals(cached.transactionId(), r.transactionId());
         verify(ops, never()).setIfAbsent(any(), any(), any(Duration.class));
         verify(accounts, never()).decrementBalance(any(), anyLong());
@@ -163,8 +167,10 @@ class TransferServiceTest {
         original.setAmountCents(25_000L);
         when(txs.findByIdempotencyKey("key-1")).thenReturn(Optional.of(original));
 
-        TransferResponse r = service.executeTransfer(req(25_000));
+        TransferService.TransferOutcome o = service.transfer(req(25_000));
+        TransferResponse r = o.response();
 
+        assertTrue(o.replayed());
         assertEquals(original.getId(), r.transactionId());
         verify(entries, never()).save(any());
     }
@@ -173,13 +179,27 @@ class TransferServiceTest {
     void unverifiedSenderIsRejectedBeforeAnyWrite() {
         happyStubs(100_000);
         org.mockito.Mockito.doThrow(new KycNotVerifiedException("Customer KYC is not verified (status: pending)"))
-                .when(kyc).requireVerified(any());
+                .when(kyc).requireVerifiedAccount(from);
 
         assertThrows(KycNotVerifiedException.class, () -> service.executeTransfer(req(5_000)));
 
+        // rejected before the lock and before any database work
+        verify(ops, never()).setIfAbsent(any(), any(), any(Duration.class));
         verify(txs, never()).saveAndFlush(any());
         verify(accounts, never()).decrementBalance(any(), anyLong());
-        verify(redis).execute(any(RedisScript.class), anyList(), any());
+    }
+
+    @Test
+    void customerServiceDownMeansNoTransferIsAttempted() {
+        happyStubs(100_000);
+        org.mockito.Mockito.doThrow(new com.Bank_website.Novo_Bank_Service_PLC.ledger.exception.ServiceUnavailableException("down"))
+                .when(kyc).requireVerifiedAccount(from);
+
+        assertThrows(com.Bank_website.Novo_Bank_Service_PLC.ledger.exception.ServiceUnavailableException.class,
+                () -> service.executeTransfer(req(5_000)));
+
+        verify(txs, never()).saveAndFlush(any());
+        verify(accounts, never()).findById(any());
     }
 
     @Test

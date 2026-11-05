@@ -31,7 +31,7 @@ Banking prototype on free tiers: Spring Boot 3.2 / Java 17, Supabase PostgreSQL,
 SHARED: Supabase PostgreSQL | Upstash Redis (idempotency, locks, cache) | Upstash QStash
 ```
 
-Note: Customer and Ledger run as **one Spring Boot app / one Render service**, so the KYC check is an in-process call, not HTTP. Fraud and Notification are separate services that call the main app over HTTP.
+Note: Customer and Ledger run as **one Spring Boot app / one Render service**, so the KYC check is in-process by default. Set `CUSTOMER_SERVICE_URL` on the ledger to switch to HTTP (`GET /api/customers/by-account/{id}`, 5 s timeout, 503 if the Customer Service is down; a transfer is never attempted without a KYC answer). Unverified customer -> 422. Replaying an idempotency key -> 200 with the original transaction. Fraud and Notification are separate services that call the main app over HTTP. Full diagram: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Quick start
 

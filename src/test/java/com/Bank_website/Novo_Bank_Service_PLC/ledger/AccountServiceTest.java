@@ -1,6 +1,5 @@
 package com.Bank_website.Novo_Bank_Service_PLC.ledger;
 
-import com.Bank_website.Novo_Bank_Service_PLC.dto.CustomerResponse;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.dto.AccountResponse;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.dto.CreateAccountRequest;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.entity.Account;
@@ -16,7 +15,6 @@ import com.Bank_website.Novo_Bank_Service_PLC.ledger.repository.OutboxRepository
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.repository.TransactionRepository;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.service.AccountService;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.service.KycGateway;
-import com.Bank_website.Novo_Bank_Service_PLC.service.CustomerService;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -87,30 +85,33 @@ class AccountServiceTest {
     @Test
     void unverifiedCustomerCannotOpenAccount() {
         doThrow(new KycNotVerifiedException("Customer KYC is not verified (status: pending)"))
-                .when(kyc).requireVerified(customerId);
+                .when(kyc).requireVerifiedCustomer(customerId);
         assertThrows(KycNotVerifiedException.class,
                 () -> service.createAccount(new CreateAccountRequest(customerId, "savings", 100L)));
         verify(accounts, never()).saveAndFlush(any());
     }
 
     @Test
-    void kycGatewayCachesOnlyVerified() {
-        CustomerService customers = mock(CustomerService.class);
+    void kycGatewayCachesOnlyVerifiedUnderAccountKey() {
+        com.Bank_website.Novo_Bank_Service_PLC.ledger.service.KycLookup lookup =
+                mock(com.Bank_website.Novo_Bank_Service_PLC.ledger.service.KycLookup.class);
         RedisTemplate<String, String> redis = mock(RedisTemplate.class);
         ValueOperations<String, String> ops = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(ops);
-        KycGateway gateway = new KycGateway(customers, redis);
+        KycGateway gateway = new KycGateway(lookup, redis);
+        UUID accountId = UUID.randomUUID();
 
-        when(customers.getById(customerId)).thenReturn(customer("pending"));
-        assertThrows(KycNotVerifiedException.class, () -> gateway.requireVerified(customerId));
+        when(lookup.statusByAccount(accountId)).thenReturn("pending");
+        assertThrows(KycNotVerifiedException.class, () -> gateway.requireVerifiedAccount(accountId));
         verify(ops, never()).set(any(), any(), any(Duration.class));
 
-        when(customers.getById(customerId)).thenReturn(customer("verified"));
-        gateway.requireVerified(customerId);
-        verify(ops).set(eq("kyc:" + customerId), eq("verified"), eq(Duration.ofSeconds(600)));
-    }
+        when(lookup.statusByAccount(accountId)).thenReturn("verified");
+        gateway.requireVerifiedAccount(accountId);
+        verify(ops).set(eq("kyc:" + accountId), eq("verified"), eq(Duration.ofSeconds(600)));
 
-    private CustomerResponse customer(String kyc) {
-        return new CustomerResponse(customerId, "CIF-000001", "A B", "01712345678", null, kyc, "low", "active", null);
+        // cache hit: no further lookup
+        when(ops.get("kyc:" + accountId)).thenReturn("verified");
+        gateway.requireVerifiedAccount(accountId);
+        verify(lookup, org.mockito.Mockito.times(2)).statusByAccount(accountId);
     }
 }

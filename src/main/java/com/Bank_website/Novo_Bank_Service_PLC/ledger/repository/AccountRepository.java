@@ -15,6 +15,9 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     Optional<Account> findByAccountNumber(String accountNumber);
 
+    @Query("SELECT a.customerId FROM Account a WHERE a.id = :accountId")
+    Optional<UUID> findCustomerIdByAccountId(@Param("accountId") UUID accountId);
+
     /**
      * Atomic single-statement debit. The balance guard means a concurrent debit that
      * leaves too little money yields 0 rows affected instead of a negative balance.

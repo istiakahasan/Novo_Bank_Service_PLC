@@ -1,5 +1,62 @@
 # Architecture
 
+## System diagram
+
+```
+                       CLIENT / curl
+                            |
+              +-------------+--------------+
+              v                            v
+ +----------------------------------------------------+
+ | NOVO-BANK (one Spring Boot app / one Render service) |
+ |  +-------------------+     +--------------------+  |
+ |  | CUSTOMER  :3003   |<----| LEDGER  (same app) |  |
+ |  | /api/customers    |     | /api/transfers     |  |
+ |  | /by-account/{id}  |     | /api/accounts      |  |
+ |  +---------+---------+     +----+----------+----+  |
+ |            |   SYNC KYC check   |          |       |
+ |            |   (in-process, or HTTP GET    |       |
+ |            |    /by-account if             |       |
+ |            |    CUSTOMER_SERVICE_URL set;  |       |
+ |            |    blocks transfer, 5 s, 503) |       |
+ +------------+----------------------+--------+-------+
+              |                      |        |
+   ASYNC POST event            ASYNC POST event  JDBC / Redis
+   (customer.created,          (transfer.completed,   |
+    kyc.verified)               account.created,      |
+              |                 via outbox + 5 s poll)|
+              v                      v                |
+        +-------------------------------------+       |
+        |  UPSTASH QSTASH  URL group          |       |
+        |  "banking-events"  (4 endpoints)    |       |
+        +----------+---------------+----------+       |
+                   |               |                  |
+         ASYNC fan-out      ASYNC fan-out             |
+         (signed, retried)  (signed, retried)         |
+                   v               v                  |
+        +----------------+  +--------------------+    |
+        | FRAUD   :3005  |  | NOTIFICATION :3006 |    |
+        | /webhooks/     |  | /webhooks/         |    |
+        |  transfer-     |  |  transfer-         |    |
+        |  completed     |  |  completed         |    |
+        |  customer-     |  |  customer-         |    |
+        |  created       |  |  created           |    |
+        +-------+--------+  +---------+----------+    |
+                |                     |               |
+                |  SYNC GET /by-account (Redis-cached 300 s / 600 s;
+                |  does not block any transfer)
+                +----------+----------+
+                           v
+                  NOVO-BANK (Customer API)
+
+ SHARED: Supabase PostgreSQL (app + fraud_alerts) | Upstash Redis (idempotency, locks, kyc and customer caches)
+ Mailtrap SMTP <- notification-service
+```
+
+Which arrows block a transfer: only the Ledger -> Customer KYC check (and Redis lock/idempotency). Everything below QStash is asynchronous and happens after the transfer has committed.
+
+## Deployment shape
+
 ```
 Client ──HTTPS──▶ Render (Spring Boot, free, sleeps 15 min)
                     │  ├─ JDBC (session pooler) ─▶ Supabase PostgreSQL (500 MB)
@@ -79,8 +136,19 @@ Customer/Ledger (Render) --publish--> QStash URL group "banking-events"
 
 ## KYC gate and account opening
 
-- `KycGateway` (ledger) is called inside the transfer DB transaction before the transaction row is inserted. It reads Redis `kyc:{customerId}` (600 s) and otherwise asks `CustomerService` in-process. Only `verified` is cached, so approvals apply immediately.
-- `AccountService.createAccount` writes account + opening credit (synthetic transaction, from = to = new account) + `account.created` outbox row atomically.
+- Transfer path: after the idempotency check and **before** the Redis lock and the DB transaction, `KycGateway.requireVerifiedAccount(fromAccount)` runs. It reads Redis `kyc:{accountId}` (TTL 600 s) and otherwise asks a `KycLookup`:
+  - `LocalKycLookup` (default): calls `CustomerService.getByAccountId` in-process (Customer and Ledger share a JVM).
+  - `HttpKycLookup` (when `CUSTOMER_SERVICE_URL` is set): `GET /api/customers/by-account/{id}` with 5 s connect/read timeouts. 404 -> 404, timeout / connection error / 5xx -> **503 `ServiceUnavailableException`**, and the transfer is not attempted.
+- `kyc_status != 'verified'` -> `KycNotVerifiedException` -> **422**. Only `verified` is cached, so an approval applies immediately and a pending customer is never "stuck" for 10 minutes.
+- The check runs outside the DB transaction so a slow Customer Service never holds a database connection or the account lock.
+- `GET /api/customers/by-account/{id}` resolves the customer with `AccountRepository.findCustomerIdByAccountId` (`SELECT a.customerId FROM Account a WHERE a.id = :accountId`), then reuses `getById`. Unknown account -> 404.
+- Idempotent replay (Redis hit or DB unique-key hit) returns the original transfer with **200**; a new transfer returns **201**.
+- `AccountService.createAccount` uses `requireVerifiedCustomer` (cache key `kyc:customer:{id}`) and writes account + opening credit (synthetic transaction, from = to = new account) + `account.created` outbox row atomically.
+
+## Outbox and webhook verification (unchanged, re-verified)
+
+- `OutboxPublisher` `@Scheduled(fixedDelay = 5000)` reads `published = false` rows oldest-first, POSTs to the QStash URL group with `Authorization: Bearer`, marks `published = true` only on success, and stops the cycle on the first failure (warning logged, retried next tick). The outbox row is written in the same DB transaction as the ledger entries.
+- Fraud and Notification verify `Upstash-Signature`. QStash signs with a JWT (HS256), not a bare HMAC of the body, so the verifier checks the HMAC over `header.payload` with the current or next signing key, the issuer, the time window and the SHA-256 body hash claim. Invalid -> 401.
 
 ## Status
 

@@ -27,7 +27,9 @@ public class TransferController {
 
     @PostMapping
     public ResponseEntity<TransferResponse> transfer(@Valid @RequestBody TransferRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(transferService.executeTransfer(request));
+        TransferService.TransferOutcome outcome = transferService.transfer(request);
+        // 201 for a new transfer, 200 when an idempotent replay returns the original
+        return ResponseEntity.status(outcome.replayed() ? HttpStatus.OK : HttpStatus.CREATED).body(outcome.response());
     }
 
     @GetMapping("/{id}")

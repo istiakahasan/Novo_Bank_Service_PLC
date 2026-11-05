@@ -56,7 +56,7 @@ public class AccountService {
      */
     @Transactional
     public AccountResponse createAccount(CreateAccountRequest request) {
-        kycGateway.requireVerified(request.customerId());
+        kycGateway.requireVerifiedCustomer(request.customerId());
 
         OffsetDateTime now = OffsetDateTime.now();
         Account account = new Account();
