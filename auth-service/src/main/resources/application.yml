@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: auth-service
+  datasource:
+    url: jdbc:postgresql://${SUPABASE_HOST}:5432/postgres
+    username: ${SUPABASE_DB_USER:postgres}
+    password: ${SUPABASE_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 3
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+      ssl:
+        enabled: ${REDIS_SSL:true}
+      timeout: 3s
+
+server:
+  port: ${PORT:3007}
+
+auth:
+  issuer: ${JWT_ISSUER:novo-auth}
+  # base64 PKCS#8 DER (or PEM) of the RSA private key. Only this service holds it.
+  private-key: ${JWT_PRIVATE_KEY}
+  access-ttl-seconds: ${ACCESS_TTL_SECONDS:900}
+  refresh-ttl-seconds: ${REFRESH_TTL_SECONDS:604800}
+  max-failed-logins: 5
+  bootstrap:
+    # If set and the auth_users table is empty, creates user "staff" with this password.
+    password: ${AUTH_BOOTSTRAP_PASSWORD:}
+    # true = also creates demo users alice / bob (customers 1111... / 2222... from db/seed.sql)
+    demo: ${AUTH_BOOTSTRAP_DEMO:false}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

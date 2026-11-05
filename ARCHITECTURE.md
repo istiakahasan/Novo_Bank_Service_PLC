@@ -64,6 +64,22 @@ Client ──HTTPS──▶ Render (Spring Boot, free, sleeps 15 min)
                     │  └─ publish (HTTPS)       ─▶ Upstash QStash ──signed callback──▶ Render
 ```
 
+## Authorization layer
+
+```
+ user --login--> AUTH-SERVICE :3007 --(RS256 JWT, 15 min + rotating refresh token)--> user
+                  | identity: Supabase auth_users, refresh_tokens
+                  | logout: Redis revoked:jti:{jti} (TTL = token life)
+ user --Bearer JWT--> NOVO-BANK (Customer + Ledger)   verifies locally with JWT_PUBLIC_KEY (no call to auth-service)
+ fraud / notification --X-Service-Id + X-Service-Key--> NOVO-BANK Customer API   (ROLE_SYSTEM, read-only + aml-risk)
+ QStash --Upstash-Signature (JWT HS256)--> fraud / notification webhooks         (no user token involved)
+```
+
+- Roles: CUSTOMER (own data only, via the `cid` claim), STAFF (all bank operations), SYSTEM (service key only; customer lookups and AML-risk update). A user token can never carry SYSTEM.
+- Two layers: route rules in each `ServiceSecurityConfig` (role per path, `denyAll` default) and `@PreAuthorize` ownership checks (`AccessPolicy`) on the controllers.
+- Shared code lives in `security-starter` (Maven library): filters, verifier, handlers, service-key interceptor.
+- Full matrix and rotation procedures: `docs/AUTHORIZATION.md`.
+
 ## Components
 
 | Component | Role | Free limit |

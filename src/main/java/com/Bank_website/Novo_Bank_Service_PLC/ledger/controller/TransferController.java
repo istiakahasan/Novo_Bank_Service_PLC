@@ -4,6 +4,7 @@ import com.Bank_website.Novo_Bank_Service_PLC.ledger.dto.TransferRequest;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.dto.TransferResponse;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.service.TransferService;
 import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +26,7 @@ public class TransferController {
         this.transferService = transferService;
     }
 
+    @PreAuthorize("hasRole('STAFF') or (hasRole('CUSTOMER') and @access.ownsAccount(authentication, #request.fromAccount()))")
     @PostMapping
     public ResponseEntity<TransferResponse> transfer(@Valid @RequestBody TransferRequest request) {
         TransferService.TransferOutcome outcome = transferService.transfer(request);
@@ -32,6 +34,7 @@ public class TransferController {
         return ResponseEntity.status(outcome.replayed() ? HttpStatus.OK : HttpStatus.CREATED).body(outcome.response());
     }
 
+    @PreAuthorize("hasRole('STAFF') or (hasRole('CUSTOMER') and @access.canViewTransfer(authentication, #id))")
     @GetMapping("/{id}")
     public ResponseEntity<TransferResponse> get(@PathVariable UUID id) {
         return ResponseEntity.ok(transferService.getTransfer(id));

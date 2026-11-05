@@ -14,7 +14,9 @@ Render -> New + -> Web Service -> same GitHub repo, branch `initial`, then per s
 |---|---|---|
 | Name | `fraud-service` | `notification-service` |
 | Runtime | Docker | Docker |
-| Root Directory | `fraud-service` | `notification-service` |
+| Root Directory | *(blank)* | *(blank)* |
+| Dockerfile Path | `./fraud-service/Dockerfile` | `./notification-service/Dockerfile` |
+| Docker Build Context Directory | `.` | `.` |
 | Instance type | Free | Free |
 
 Environment variables (Render -> Environment):
