@@ -35,23 +35,26 @@ public class EventPublisher {
 
     public void publishCustomerCreated(Customer customer) {
         Map<String, Object> payload = basePayload("customer.created", customer);
-        payload.put("mobileNo", customer.getMobileNo());
+        payload.put("display_name", customer.getDisplayName());
+        payload.put("email", customer.getEmail());
+        payload.put("mobile_no", customer.getMobileNo());
         send(payload);
     }
 
     public void publishKycVerified(Customer customer, String verifiedBy) {
         Map<String, Object> payload = basePayload("kyc.verified", customer);
-        payload.put("verifiedBy", verifiedBy);
+        payload.put("verified_by", verifiedBy);
         send(payload);
     }
 
+    /** Wire contract (snake_case) consumed by fraud-service and notification-service. */
     private Map<String, Object> basePayload(String eventType, Customer customer) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("eventType", eventType);
-        payload.put("customerId", customer.getId());
-        payload.put("customerNumber", customer.getCustomerNumber());
-        payload.put("kycStatus", customer.getKycStatus());
-        payload.put("occurredAt", OffsetDateTime.now().toString());
+        payload.put("event", eventType);
+        payload.put("customer_id", customer.getId());
+        payload.put("customer_number", customer.getCustomerNumber());
+        payload.put("kyc_status", customer.getKycStatus());
+        payload.put("occurred_at", OffsetDateTime.now().toString());
         return payload;
     }
 
@@ -65,7 +68,7 @@ public class EventPublisher {
                     .retrieve()
                     .toBodilessEntity();
         } catch (Exception ex) {
-            log.warn("Failed to publish {} to QStash: {}", payload.get("eventType"), ex.getMessage());
+            log.warn("Failed to publish {} to QStash: {}", payload.get("event"), ex.getMessage());
         }
     }
 }

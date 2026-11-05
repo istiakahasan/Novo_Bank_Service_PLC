@@ -1,5 +1,6 @@
 package com.Bank_website.Novo_Bank_Service_PLC.controller;
 
+import com.Bank_website.Novo_Bank_Service_PLC.dto.AmlRiskUpdateRequest;
 import com.Bank_website.Novo_Bank_Service_PLC.dto.CreateCustomerRequest;
 import com.Bank_website.Novo_Bank_Service_PLC.dto.CustomerResponse;
 import com.Bank_website.Novo_Bank_Service_PLC.dto.KycUpdateRequest;
@@ -40,6 +41,17 @@ public class CustomerController {
     @GetMapping("/by-mobile/{mobileNo}")
     public ResponseEntity<CustomerResponse> getByMobile(@PathVariable String mobileNo) {
         return ResponseEntity.ok(customerService.getByMobileNo(mobileNo));
+    }
+
+    @GetMapping("/by-account/{accountId}")
+    public ResponseEntity<CustomerResponse> getByAccount(@PathVariable UUID accountId) {
+        return ResponseEntity.ok(customerService.getByAccountId(accountId));
+    }
+
+    @PatchMapping("/{id}/aml-risk")
+    public ResponseEntity<CustomerResponse> updateAmlRisk(@PathVariable UUID id,
+                                                          @Valid @RequestBody AmlRiskUpdateRequest request) {
+        return ResponseEntity.ok(customerService.updateAmlRisk(id, request.amlRiskRating()));
     }
 
     @PatchMapping("/{id}/kyc")
