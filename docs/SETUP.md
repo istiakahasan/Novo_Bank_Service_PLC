@@ -123,6 +123,9 @@ Outbox rows stay `published=false` when publishing fails, so nothing is lost —
 | Supabase | Spring Boot app | Session pooler JDBC URL | `SUPABASE_HOST` | `.env`, Render env |
 | Supabase | Spring Boot app | Pooler username `postgres.<ref>` | `SUPABASE_DB_USER` | `.env`, Render env |
 | Supabase | Spring Boot app | Database password | `SUPABASE_DB_PASSWORD` | `.env`, Render env |
+| Upstash Redis | Spring Boot app | Endpoint (host) | `REDIS_HOST` | `.env`, Render env |
+| Upstash Redis | Spring Boot app | Port (6379) | `REDIS_PORT` | `.env`, Render env |
+| Upstash Redis | Spring Boot app | Password | `REDIS_PASSWORD` | `.env`, Render env |
 | Upstash Redis | Spring Boot app | REST URL | `UPSTASH_REDIS_REST_URL` | `.env`, Render env |
 | Upstash Redis | Spring Boot app | REST token | `UPSTASH_REDIS_REST_TOKEN` | `.env`, Render env |
 | Upstash Redis | Spring Boot app | TCP `rediss://` URL | `REDIS_URL` | `.env`, Render env |
