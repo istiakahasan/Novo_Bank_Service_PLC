@@ -61,6 +61,7 @@ public class TransferService {
     private final RedisTemplate<String, String> redisTemplate;
     private final EventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
+    private final KycGateway kycGateway;
     private final TransactionTemplate transactionTemplate;
 
     public TransferService(AccountRepository accountRepository,
@@ -71,6 +72,7 @@ public class TransferService {
                            RedisTemplate<String, String> redisTemplate,
                            @Qualifier("ledgerEventPublisher") EventPublisher eventPublisher,
                            ObjectMapper objectMapper,
+                           KycGateway kycGateway,
                            PlatformTransactionManager transactionManager) {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
@@ -80,6 +82,7 @@ public class TransferService {
         this.redisTemplate = redisTemplate;
         this.eventPublisher = eventPublisher;
         this.objectMapper = objectMapper;
+        this.kycGateway = kycGateway;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -131,6 +134,9 @@ public class TransferService {
         accountRepository.findById(request.toAccount())
                 .filter(a -> "active".equals(a.getStatus()))
                 .orElseThrow(() -> new ResourceNotFoundException("Active account not found: " + request.toAccount()));
+
+        // c2. Sender must be KYC-verified (cached in Redis kyc:{customerId}, 600 s) -> 422
+        kycGateway.requireVerified(from.getCustomerId());
 
         // e. Fast-fail balance check (the atomic UPDATE in step h is the real guard)
         if (from.getBalanceCents() < request.amountCents()) {

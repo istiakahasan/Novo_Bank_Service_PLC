@@ -30,3 +30,15 @@ server:
 qstash:
   topic-url: ${QSTASH_TOPIC_URL}
   token: ${QSTASH_TOKEN}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+  health:
+    mail:
+      enabled: false
