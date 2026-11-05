@@ -1,0 +1,36 @@
+{
+  "name": "QStash topic: customer.created -> fraud, notification",
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "url": "/qstash/topic",
+    "bodyPatterns": [
+      { "matchesJsonPath": { "expression": "$.event", "equalTo": "customer.created" } }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "messageId": "msg_local_customer", "deduplicated": false }
+  },
+  "serveEventListeners": [
+    {
+      "name": "webhook",
+      "parameters": {
+        "method": "POST",
+        "url": "http://fraud:3005/webhooks/customer-created",
+        "headers": { "Content-Type": "application/json", "Upstash-Message-Id": "msg_local_customer" },
+        "body": "{{{originalRequest.body}}}"
+      }
+    },
+    {
+      "name": "webhook",
+      "parameters": {
+        "method": "POST",
+        "url": "http://notification:3006/webhooks/customer-created",
+        "headers": { "Content-Type": "application/json", "Upstash-Message-Id": "msg_local_customer" },
+        "body": "{{{originalRequest.body}}}"
+      }
+    }
+  ]
+}

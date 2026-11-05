@@ -1,6 +1,7 @@
 package com.Bank_website.Novo_Bank_Service_PLC.ledger.mapper;
 
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.dto.AccountResponse;
+import com.Bank_website.Novo_Bank_Service_PLC.ledger.dto.AccountSummaryResponse;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.dto.BalanceResponse;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.dto.LedgerEntryResponse;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.dto.TransferResponse;
@@ -24,6 +25,11 @@ public class TransferMapper {
 
     public AccountResponse toAccountResponse(Account a) {
         return new AccountResponse(a.getId(), a.getCustomerId(), a.getAccountNumber(), a.getAccountType(),
+                a.getBalanceCents(), a.getStatus(), a.getCreatedAt());
+    }
+
+    public AccountSummaryResponse toAccountSummary(Account a) {
+        return new AccountSummaryResponse(a.getId(), a.getAccountNumber(), a.getAccountType(),
                 a.getBalanceCents(), a.getStatus(), a.getCreatedAt());
     }
 
