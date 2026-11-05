@@ -35,6 +35,19 @@ customer:
     # Set to the Customer Service URL if deployed separately: HTTP lookup, 5 s timeout, 503 when unreachable.
     url: ${CUSTOMER_SERVICE_URL:}
 
+ledger:
+  service:
+    # Empty (default) = Customer and Ledger share this JVM and accounts are read in-process.
+    # Set to the Ledger Service URL if deployed separately: GET /api/accounts?customerId= with the SYSTEM key.
+    url: ${LEDGER_SERVICE_URL:}
+
+system:
+  # Identity and secret this service sends (X-Service-Id / X-Service-Key) to the Ledger Service.
+  # The Ledger Service must list  customer-service=<secret>  in its SYSTEM_KEYS.
+  service-id: ${CUSTOMER_SERVICE_ID:customer-service}
+  token:
+    secret: ${SYSTEM_TOKEN_SECRET:}
+
 qstash:
   topic-url: ${QSTASH_TOPIC_URL}
   token: ${QSTASH_TOKEN}
