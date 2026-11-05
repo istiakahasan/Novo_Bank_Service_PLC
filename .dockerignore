@@ -1,0 +1,14 @@
+# Keeps the repo-root build context small and keeps secrets out of images
+.git
+.github
+**/node_modules
+**/target
+**/.next
+apps
+packages
+docs
+.env
+.env.*
+!.env.local.example
+keys
+*.pem

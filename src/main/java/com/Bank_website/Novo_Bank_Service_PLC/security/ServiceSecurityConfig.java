@@ -25,12 +25,17 @@ public class ServiceSecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                 // customer service
                 .requestMatchers(HttpMethod.POST, "/api/customers").hasRole("STAFF")
+                .requestMatchers(HttpMethod.GET, "/api/customers").hasRole("STAFF")
+                .requestMatchers(HttpMethod.GET, "/api/customers/me").hasRole("CUSTOMER")
+                .requestMatchers(HttpMethod.GET, "/api/customers/*/accounts").hasAnyRole("CUSTOMER", "STAFF")
                 .requestMatchers(HttpMethod.PATCH, "/api/customers/*/kyc").hasRole("STAFF")
                 .requestMatchers(HttpMethod.PATCH, "/api/customers/*/aml-risk").hasAnyRole("STAFF", "SYSTEM")
                 .requestMatchers(HttpMethod.GET, "/api/customers/by-mobile/*").hasAnyRole("STAFF", "SYSTEM")
                 .requestMatchers(HttpMethod.GET, "/api/customers/by-account/*").hasAnyRole("CUSTOMER", "STAFF", "SYSTEM")
                 .requestMatchers(HttpMethod.GET, "/api/customers/*").hasAnyRole("CUSTOMER", "STAFF", "SYSTEM")
-                // ledger: users only, never SYSTEM
+                // ledger: GET /api/accounts?customerId= is the one SYSTEM-only call (used by the Customer Service)
+                .requestMatchers(HttpMethod.GET, "/api/accounts").hasRole("SYSTEM")
+                // ledger: everything else is for users only, never SYSTEM
                 .requestMatchers("/api/transfers/**", "/api/accounts/**").hasAnyRole("CUSTOMER", "STAFF")
                 .anyRequest().denyAll());
         return http.build();
