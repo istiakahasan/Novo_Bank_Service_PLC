@@ -1,5 +1,11 @@
 # Changes
 
+## 2026-11-05 - Local development environment (docker-compose)
+
+- New: `docker-compose.yml` (postgres 16, redis 7, mailhog, WireMock 3.13.2 as QStash stand-in, auth, customer, ledger forwarder, fraud, notification, support), per-service `services/*/Dockerfile` (multi-stage, non-root), `init-db.sql` (schema + seed users/accounts/ticket), `wiremock/qstash-mappings/`, `.env.local.example`, `scripts/{make-key,start-all,stop-all,seed-data}.sh`, `README-DEV.md`, `.github/workflows/local-smoke.yml`.
+- Local-only settings: `QSTASH_VERIFY_SIGNATURES=false`, `AUTH_DB_SCHEMA=public`, `SPRING_DATASOURCE_URL` override. Ledger (:3004) is a TCP forwarder to the Customer app, which hosts both.
+- No changes to existing code or cloud deployment.
+
 ## 2026-11-05 - Customer list, accounts aggregation and /me
 
 - Customer: `GET /api/customers` (STAFF; filters kycStatus / status / riskTier, case-insensitive; paged, default 20, max 100), `GET /api/customers/{id}/accounts` (CUSTOMER own / STAFF; aggregated from the Ledger, Redis `customer_accounts:{id}` 60 s, 503 when the Ledger is down), `GET /api/customers/me` (CUSTOMER; from the token, 403 without a customerId claim).
