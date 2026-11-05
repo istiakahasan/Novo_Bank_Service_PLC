@@ -7,6 +7,7 @@ import com.Bank_website.Novo_Bank_Service_PLC.ledger.dto.LedgerEntryResponse;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.service.AccountService;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.service.TransferService;
 import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -32,16 +33,19 @@ public class AccountController {
         this.accountService = accountService;
     }
 
+    @PreAuthorize("hasRole('STAFF') or (hasRole('CUSTOMER') and @access.isOwnCustomer(authentication, #request.customerId()))")
     @PostMapping
     public ResponseEntity<AccountResponse> create(@Valid @RequestBody CreateAccountRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(accountService.createAccount(request));
     }
 
+    @PreAuthorize("hasRole('STAFF') or (hasRole('CUSTOMER') and @access.ownsAccount(authentication, #id))")
     @GetMapping("/{id}/balance")
     public ResponseEntity<BalanceResponse> balance(@PathVariable UUID id) {
         return ResponseEntity.ok(transferService.getBalance(id));
     }
 
+    @PreAuthorize("hasRole('STAFF') or (hasRole('CUSTOMER') and @access.ownsAccount(authentication, #id))")
     @GetMapping("/{id}/entries")
     public ResponseEntity<List<LedgerEntryResponse>> entries(@PathVariable UUID id,
                                                              @RequestParam(defaultValue = "20") int limit) {

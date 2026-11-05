@@ -5,6 +5,10 @@
 set -uo pipefail
 
 MAIN="${MAIN:?set MAIN}"
+AUTH="${AUTH:?set AUTH (auth-service URL)}"
+STAFF_USER="${STAFF_USER:-staff}"
+STAFF_PASSWORD="${STAFF_PASSWORD:?set STAFF_PASSWORD}"
+TOKEN=""
 FRAUD="${FRAUD:-}"
 NOTIF="${NOTIF:-}"
 ALICE_CUST="${ALICE_CUST:-11111111-1111-4111-8111-111111111111}"
@@ -28,12 +32,13 @@ check() { # name expected actual
   fi
 }
 
-req() { # method url [json]
-  local resp
+req() { # method url [json]; sends the STAFF token to the main app only
+  local resp auth=()
+  case "$2" in "$MAIN"*) [ -n "$TOKEN" ] && auth=(-H "Authorization: Bearer $TOKEN");; esac
   if [ -n "${3:-}" ]; then
-    resp=$(curl -s --max-time 90 -w $'\n%{http_code}' -X "$1" "$2" -H 'Content-Type: application/json' -d "$3")
+    resp=$(curl -s --max-time 90 -w $'\n%{http_code}' -X "$1" "$2" "${auth[@]}" -H 'Content-Type: application/json' -d "$3")
   else
-    resp=$(curl -s --max-time 90 -w $'\n%{http_code}' -X "$1" "$2")
+    resp=$(curl -s --max-time 90 -w $'\n%{http_code}' -X "$1" "$2" "${auth[@]}")
   fi
   CODE="${resp##*$'\n'}"
   BODY="${resp%$'\n'*}"
@@ -50,6 +55,12 @@ echo "== health =="
 req GET "$MAIN/actuator/health"; check "main health" "UP" "$(echo "$BODY" | jq -r .status)"
 if [ -n "$FRAUD" ]; then req GET "$FRAUD/actuator/health"; check "fraud health" "UP" "$(echo "$BODY" | jq -r .status)"; fi
 if [ -n "$NOTIF" ]; then req GET "$NOTIF/actuator/health"; check "notification health" "UP" "$(echo "$BODY" | jq -r .status)"; fi
+
+echo "== authentication =="
+req POST "$MAIN/api/transfers" '{}'; check "anonymous call is 401" "401" "$CODE"
+LOGIN=$(curl -s --max-time 90 -X POST "$AUTH/auth/login" -H 'Content-Type: application/json' -d "{\"username\":\"$STAFF_USER\",\"password\":\"$STAFF_PASSWORD\"}")
+TOKEN=$(echo "$LOGIN" | jq -r .accessToken)
+check "staff login returns a token" "true" "$([ -n "$TOKEN" ] && [ "$TOKEN" != null ] && echo true || echo false)"
 
 echo "== unsigned webhooks are rejected =="
 if [ -n "$FRAUD" ]; then
@@ -145,5 +156,5 @@ fi
 
 echo
 echo "RESULT: $pass passed, $fail failed"
-echo "Now grep the Render logs for: FRAUD CHECK txn=$TXN1 | FRAUD ALERT rule=HIGH_VALUE txn=$TXN6K | EMAIL sent to rahim$RUN@example.com"
+echo "Now grep the Render logs for: FRAUD CHECK result=PASS txn=$TXN1 | FRAUD ALERT rule=HIGH_VALUE txn=$TXN6K | EMAIL sent to r***@example.com (masked)"
 [ "$fail" -eq 0 ]

@@ -1,5 +1,6 @@
 package com.Bank_website.fraud.config;
 
+import com.Bank_website.security.SystemAuthInterceptor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,10 +14,11 @@ public class RestClientConfig {
 
     /** Client for the Customer Service. Short timeouts keep us well inside QStash's 10 s limit. */
     @Bean
-    public RestClient customerServiceClient(@Value("${customer.service.url}") String baseUrl) {
+    public RestClient customerServiceClient(@Value("${customer.service.url}") String baseUrl,
+                                            SystemAuthInterceptor systemAuth) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout((int) Duration.ofSeconds(2).toMillis());
         factory.setReadTimeout((int) Duration.ofSeconds(4).toMillis());
-        return RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+        return RestClient.builder().baseUrl(baseUrl).requestFactory(factory).requestInterceptor(systemAuth).build();
     }
 }
