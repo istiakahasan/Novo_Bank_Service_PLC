@@ -1,5 +1,54 @@
 # Changes
 
+## 2026-11-05 - shared-security-starter library
+
+- New Maven module `shared-security-starter/` (`com.banking:shared-security-starter:1.0.0`): `JwtValidator` (RS256, issuer `banking-auth`, Redis `jwt_blocklist:{jti}`, key from `JWT_PUBLIC_KEY` or cached JWKS), `JwtAuthenticationFilter`, `QStashSignatureVerifier` + `QStashSignatureFilter` (real Upstash JWT format and `v1=` HMAC), `UnauthorizedHandler`, `ForbiddenHandler`, `RoleExtractor`, `DefaultSecurityConfig` (CORS from `CORS_ALLOWED_ORIGINS`), auto-configuration.
+- Publishing: GitHub Packages (`distributionManagement`, `.github/workflows/publish-shared-security-starter.yml`) and a clone-and-install fallback; Render build commands in `docs/SHARED_SECURITY_STARTER.md`.
+- 26 tests including a real Spring context with no security code of its own (401/403 JSON, @PreAuthorize, webhook signature before the controller, CORS, custom-chain override).
+- Existing services and the in-repo `security-starter` are unchanged; migrating a service means removing its own security classes and adding the dependency.
+
+## 2026-11-05 - Support Service
+
+- New `support-service/` (port 3007, Java 17, Boot 3.2.12): entities `SupportTicket` / `TicketMessage`, repositories (Specification-based STAFF filters), DTO records, `TicketMapper`, `TicketService` (status transition validation, ownership, internal notes), `TicketEventPublisher`, `TransferCompletedWebhookHandler`, `TicketController`, `SupportWebhookController`, security config, exception handler, Dockerfile (repo-root build context).
+- `db/005_support.sql`, `docs/SUPPORT_SERVICE.md` (deployment steps, 4 test commands).
+- Existing four services, the auth service and the shared starter were not modified. Operational step only: add `support-service=<key>` to the Customer API's `SYSTEM_KEYS`.
+- Deviations from the brief:
+  - Render has no Java runtime: Docker, repo-root build context (the service needs `security-starter`).
+  - The signature header is `Upstash-Signature`; `QStashSignatureVerifier` is not in the shared module (Fraud and Notification each carry a copy), so the same class was copied into this service.
+  - "SYSTEM token" is the existing service-key mechanism (`SYSTEM_TOKEN_SECRET` = `X-Service-Key`, id `support-service`), not a token.
+  - Extra env var `SUPABASE_DB_USER` (Supabase pooler user).
+  - STAFF filters use JPA Specifications (optional UUID parameters in JPQL fail on PostgreSQL).
+  - Closed-ticket customer posts return 403; empty PATCH bodies return 400.
+  - **No existing service publishes `fraud_flagged`**, so auto-ticketing is wired but will not fire until the Ledger or Fraud service sends it.
+  - `auth-service` also defaults to port 3007 locally.
+- Verified: build + 24 tests (8 security slice, 10 ticket service, 6 webhook handler). Not run against live Supabase/Redis/QStash.
+
+## 2026-11-05 - Customer data governance inventory
+
+- Added `docs/DATA_GOVERNANCE.md`: master inventory (116 fields/keys: 74 implemented, 42 proposed), data-flow map for the 10 most sensitive fields, API exposure (PII leak) audit, event payload inventory with minimal payloads, retention and deletion schedule, masking rules, gap analysis, and a one-page summary for compliance.
+- Added `MaskingUtil` (+ `MaskingUtilTest`, 5 tests) to `security-starter`; Notification's `SMS to ...` and `EMAIL sent to ...` log lines now log masked values (finding F7 fixed). `docs/RUNBOOK.md` and `scripts/e2e.sh` updated to the masked log format.
+- Added `db/proposed/004_governance_gaps.sql`: proposed ALTER/CREATE statements (address, KYC verifier and time, audit users, PEP/sanctions, document expiry and alert timestamps, retention clock, purpose code, consent/document/PII-access tables). **Not applied automatically and not required by the app.**
+- Deviations from the brief: the brief's context assumes `customer_documents` and `customer_consents` exist and that most identity, address and lifecycle fields are stored; they are not in the code, so those rows are marked NOT IMPLEMENTED/proposed. Five extra Redis keys and the auth tables were added to the inventory because they also hold customer-related data. One extra column (Status) was added to the master table.
+- Findings recorded but NOT fixed in code: contact details and AML risk rating returned unmasked (F1, F2), mobile number in a URL path (F3), PII in events and Redis (F5, F6), no retention job (S7).
+- Citations: FATF, GDPR and PCI DSS references are standard; Bangladesh instruments (MLPA 2012 s.25, BFIU circulars, Bangladesh Bank ICT guideline, Anti-Terrorism Act 2009, Contract Act 1872 s.11) are cited by name and must be verified by counsel; items marked `[verify]` in the document need the exact clause number.
+
+## 2026-11-05 - Access authorization layer
+
+- New `security-starter/` (Maven library): `JwtAuthenticationFilter`, `SystemKeyAuthenticationFilter`, `JwtVerifier` (RS256, local verification, rotation with a second public key), `RoleExtractor` (SYSTEM can never come from a user token), `UnauthorizedHandler` (401), `ForbiddenHandler` (403), `SecurityBaseline`, `SystemAuthInterceptor`, Redis revocation check, auto-configuration `SecurityConfig`.
+- New `auth-service/` (port 3007): `POST /auth/login`, `/auth/refresh` (single-use rotation + reuse detection revokes all sessions), `/auth/logout` (Redis `revoked:jti:{jti}`), `POST /auth/users` (STAFF only), `GET /auth/public-key`, login rate limit (5 failures / 15 min), first-run bootstrap users. Tables in `db/003_auth.sql`.
+- Main app: `ServiceSecurityConfig` (role per route, `denyAll` default), `AccessPolicy` ownership checks via `@PreAuthorize` on customer, transfer and account controllers. Fraud/notification: webhooks `permitAll` (signature is the authentication), everything else denied.
+- Service-to-service: `X-Service-Id` / `X-Service-Key` with multi-key rotation (`SYSTEM_KEYS`, `SERVICE_ID`, `SERVICE_KEY`); interceptor attached only to the Customer-Service clients (fraud, notification, ledger HTTP mode).
+- Dockerfiles of main app, fraud and notification now build `security-starter` first (fraud/notification must use the repo root as Docker build context on Render).
+- Scripts/docs: `scripts/gen-keys.sh`, `scripts/attack-tests.sh` (10 scenarios), `docs/AUTHORIZATION.md`; `scripts/e2e.sh` and `docs/RUNBOOK.md` now authenticate as STAFF.
+- Behaviour change: all main-app endpoints now return 401 without a valid token; only STAFF can create customers and verify KYC.
+- Deviations from the brief:
+  - Self-issued JWT chosen (Keycloak does not fit 512 MB; Supabase Auth would add a second identity store).
+  - QStash verification kept as the real JWT-based check; a bare HMAC of the body would reject genuine QStash requests.
+  - SYSTEM auth uses per-service shared-secret headers, not a token from the auth server, so it works while the auth server sleeps.
+  - Customer and Ledger are one JVM, so there are five Render services, not four.
+  - Extra endpoint rows in the matrix: `PATCH /aml-risk` and `/actuator/health`.
+- Verified: all modules build; tests: starter 8, auth 9, main app 34 (13 authorization), fraud 14, notification 10. `scripts/*.sh` pass `bash -n`; generated keys checked against the Java key parser. NOT run against live Render/Supabase/Redis; Docker builds not run locally.
+
 ## 2026-11-05 - Sync KYC lookup (HTTP-capable), 503 handling, replay semantics
 
 - Added `KycLookup` with `LocalKycLookup` (default, in-process) and `HttpKycLookup` (selected when `CUSTOMER_SERVICE_URL` is set; RestClient, 5 s timeouts; 404 -> 404, timeout/5xx -> 503).

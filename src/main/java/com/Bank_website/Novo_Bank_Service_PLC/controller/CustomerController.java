@@ -6,6 +6,7 @@ import com.Bank_website.Novo_Bank_Service_PLC.dto.CustomerResponse;
 import com.Bank_website.Novo_Bank_Service_PLC.dto.KycUpdateRequest;
 import com.Bank_website.Novo_Bank_Service_PLC.service.CustomerService;
 import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,32 +29,38 @@ public class CustomerController {
         this.customerService = customerService;
     }
 
+    @PreAuthorize("hasRole('STAFF')")
     @PostMapping
     public ResponseEntity<CustomerResponse> create(@Valid @RequestBody CreateCustomerRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(customerService.createCustomer(request));
     }
 
+    @PreAuthorize("hasAnyRole('STAFF','SYSTEM') or (hasRole('CUSTOMER') and @access.isOwnCustomer(authentication, #id))")
     @GetMapping("/{id}")
     public ResponseEntity<CustomerResponse> getById(@PathVariable UUID id) {
         return ResponseEntity.ok(customerService.getById(id));
     }
 
+    @PreAuthorize("hasAnyRole('STAFF','SYSTEM')")
     @GetMapping("/by-mobile/{mobileNo}")
     public ResponseEntity<CustomerResponse> getByMobile(@PathVariable String mobileNo) {
         return ResponseEntity.ok(customerService.getByMobileNo(mobileNo));
     }
 
+    @PreAuthorize("hasAnyRole('STAFF','SYSTEM') or (hasRole('CUSTOMER') and @access.ownsAccount(authentication, #accountId))")
     @GetMapping("/by-account/{accountId}")
     public ResponseEntity<CustomerResponse> getByAccount(@PathVariable UUID accountId) {
         return ResponseEntity.ok(customerService.getByAccountId(accountId));
     }
 
+    @PreAuthorize("hasAnyRole('STAFF','SYSTEM')")
     @PatchMapping("/{id}/aml-risk")
     public ResponseEntity<CustomerResponse> updateAmlRisk(@PathVariable UUID id,
                                                           @Valid @RequestBody AmlRiskUpdateRequest request) {
         return ResponseEntity.ok(customerService.updateAmlRisk(id, request.amlRiskRating()));
     }
 
+    @PreAuthorize("hasRole('STAFF')")
     @PatchMapping("/{id}/kyc")
     public ResponseEntity<CustomerResponse> updateKyc(@PathVariable UUID id,
                                                       @Valid @RequestBody KycUpdateRequest request) {

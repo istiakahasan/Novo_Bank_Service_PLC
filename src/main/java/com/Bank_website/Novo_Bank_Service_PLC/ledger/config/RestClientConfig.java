@@ -1,5 +1,6 @@
 package com.Bank_website.Novo_Bank_Service_PLC.ledger.config;
 
+import com.Bank_website.security.SystemAuthInterceptor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
@@ -15,10 +16,11 @@ public class RestClientConfig {
     /** Only created when customer.service.url is set (split deployment). 5 s timeouts. */
     @Bean("ledgerCustomerClient")
     @ConditionalOnExpression("!'${customer.service.url:}'.isEmpty()")
-    public RestClient ledgerCustomerClient(@Value("${customer.service.url}") String baseUrl) {
+    public RestClient ledgerCustomerClient(@Value("${customer.service.url}") String baseUrl,
+                                           SystemAuthInterceptor systemAuth) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout((int) Duration.ofSeconds(5).toMillis());
         factory.setReadTimeout((int) Duration.ofSeconds(5).toMillis());
-        return RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+        return RestClient.builder().baseUrl(baseUrl).requestFactory(factory).requestInterceptor(systemAuth).build();
     }
 }
