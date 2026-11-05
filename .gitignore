@@ -1,3 +1,11 @@
+# Node / Next.js (frontend monorepo)
+node_modules/
+.next/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+.env.local
+
 HELP.md
 target/
 .mvn/wrapper/maven-wrapper.jar
