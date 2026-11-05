@@ -36,7 +36,7 @@ Note: Customer and Ledger run as **one Spring Boot app / one Render service**, s
 ## Quick start
 
 1. Create the infrastructure: [docs/SETUP.md](docs/SETUP.md)
-2. Supabase SQL Editor: run `db/schema.sql`, `db/seed.sql`, `db/002_fraud_alerts.sql`, `db/003_auth.sql`
+2. Supabase SQL Editor: run `db/schema.sql`, `db/seed.sql`, `db/002_fraud_alerts.sql`, `db/003_auth.sql`, `db/005_support.sql`
 3. Copy `.env.example` to `.env` and fill it in
 4. Build and test: `./mvnw -f security-starter/pom.xml install` once, then `./mvnw package` (also inside `fraud-service/`, `notification-service/`, `auth-service/`)
 5. Wire QStash: [docs/QSTASH_WIRING.md](docs/QSTASH_WIRING.md)
@@ -49,6 +49,7 @@ Note: Customer and Ledger run as **one Spring Boot app / one Render service**, s
 | repo root | 3003 | Customer + Ledger REST API, outbox relay to QStash |
 | `fraud-service/` | 3005 | QStash webhooks: fraud rules, onboarding risk |
 | `notification-service/` | 3006 | QStash webhooks: email + SMS stub |
+| `support-service/` | 3007 | Support tickets + message thread; auto-creates a dispute ticket from QStash fraud events |
 | `auth-service/` | 3007 | Login, refresh rotation, logout; issues RS256 JWTs |
 | `security-starter/` | - | Shared Maven library: JWT + service-key authorization |
 
@@ -59,6 +60,7 @@ Note: Customer and Ledger run as **one Spring Boot app / one Render service**, s
 | [docs/API.md](docs/API.md) | Endpoints, curl examples, outbox test |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | End-to-end test, Render deploy, monitoring, troubleshooting, checklist |
 | [docs/DATA_GOVERNANCE.md](docs/DATA_GOVERNANCE.md) | Customer data inventory, flows, PII leak audit, event payloads, retention, masking, gaps |
+| [docs/SUPPORT_SERVICE.md](docs/SUPPORT_SERVICE.md) | Support service endpoints, deployment, test commands |
 | [docs/AUTHORIZATION.md](docs/AUTHORIZATION.md) | Roles, endpoint matrix, tokens, service keys, attack tests |
 | [docs/SETUP.md](docs/SETUP.md) | Click-by-click account setup |
 | [docs/QSTASH_WIRING.md](docs/QSTASH_WIRING.md) | URL group, retries/DLQ, signature verification |

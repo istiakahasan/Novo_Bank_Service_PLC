@@ -44,6 +44,8 @@ Mailtrap: sign up at `https://mailtrap.io` -> Email Testing -> Inboxes -> My Inb
 | 3 | `https://fraud-service.onrender.com/webhooks/customer-created` |
 | 4 | `https://notification-service.onrender.com/webhooks/customer-created` |
 
+Optional fifth endpoint (Support Service): `https://support-service.onrender.com/webhooks/transfer-completed`. Every event on the topic is delivered to it, and it ignores everything except `transfer.completed` with `fraud_flagged: true`.
+
 4. Copy the token: QStash page -> **QSTASH_TOKEN**.
 5. The publish URL for a group is `https://qstash.upstash.io/v2/publish/banking-events`. Set on the main app (customer + ledger) in Render:
 

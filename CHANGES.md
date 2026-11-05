@@ -1,5 +1,21 @@
 # Changes
 
+## 2026-11-05 - Support Service
+
+- New `support-service/` (port 3007, Java 17, Boot 3.2.12): entities `SupportTicket` / `TicketMessage`, repositories (Specification-based STAFF filters), DTO records, `TicketMapper`, `TicketService` (status transition validation, ownership, internal notes), `TicketEventPublisher`, `TransferCompletedWebhookHandler`, `TicketController`, `SupportWebhookController`, security config, exception handler, Dockerfile (repo-root build context).
+- `db/005_support.sql`, `docs/SUPPORT_SERVICE.md` (deployment steps, 4 test commands).
+- Existing four services, the auth service and the shared starter were not modified. Operational step only: add `support-service=<key>` to the Customer API's `SYSTEM_KEYS`.
+- Deviations from the brief:
+  - Render has no Java runtime: Docker, repo-root build context (the service needs `security-starter`).
+  - The signature header is `Upstash-Signature`; `QStashSignatureVerifier` is not in the shared module (Fraud and Notification each carry a copy), so the same class was copied into this service.
+  - "SYSTEM token" is the existing service-key mechanism (`SYSTEM_TOKEN_SECRET` = `X-Service-Key`, id `support-service`), not a token.
+  - Extra env var `SUPABASE_DB_USER` (Supabase pooler user).
+  - STAFF filters use JPA Specifications (optional UUID parameters in JPQL fail on PostgreSQL).
+  - Closed-ticket customer posts return 403; empty PATCH bodies return 400.
+  - **No existing service publishes `fraud_flagged`**, so auto-ticketing is wired but will not fire until the Ledger or Fraud service sends it.
+  - `auth-service` also defaults to port 3007 locally.
+- Verified: build + 24 tests (8 security slice, 10 ticket service, 6 webhook handler). Not run against live Supabase/Redis/QStash.
+
 ## 2026-11-05 - Customer data governance inventory
 
 - Added `docs/DATA_GOVERNANCE.md`: master inventory (116 fields/keys: 74 implemented, 42 proposed), data-flow map for the 10 most sensitive fields, API exposure (PII leak) audit, event payload inventory with minimal payloads, retention and deletion schedule, masking rules, gap analysis, and a one-page summary for compliance.
