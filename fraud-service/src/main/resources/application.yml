@@ -39,3 +39,15 @@ fraud:
   high-value-threshold-cents: 500000
   velocity-max-transactions: 10
   velocity-window-seconds: 60
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+  health:
+    mail:
+      enabled: false

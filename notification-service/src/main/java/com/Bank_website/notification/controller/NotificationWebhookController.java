@@ -10,6 +10,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,6 +30,7 @@ import java.util.Set;
 @RequestMapping("/webhooks")
 public class NotificationWebhookController {
 
+    private static final Logger log = LoggerFactory.getLogger(NotificationWebhookController.class);
     private static final String SIGNATURE_HEADER = "Upstash-Signature";
 
     private final NotificationService notificationService;
@@ -52,6 +55,7 @@ public class NotificationWebhookController {
         }
         TransferCompletedEvent event = objectMapper.readValue(body, TransferCompletedEvent.class);
         if (!"transfer.completed".equals(event.event())) {
+            log.info("IGNORED event={} at /webhooks/transfer-completed", event.event());
             return ResponseEntity.ok(new IgnoredResult(true, "not a transfer.completed event"));
         }
         validate(event);
@@ -67,6 +71,7 @@ public class NotificationWebhookController {
         }
         CustomerCreatedEvent event = objectMapper.readValue(body, CustomerCreatedEvent.class);
         if (!"customer.created".equals(event.event())) {
+            log.info("IGNORED event={} at /webhooks/customer-created", event.event());
             return ResponseEntity.ok(new IgnoredResult(true, "not a customer.created event"));
         }
         validate(event);

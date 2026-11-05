@@ -14,6 +14,8 @@ import com.Bank_website.Novo_Bank_Service_PLC.ledger.repository.AccountRepositor
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.repository.LedgerEntryRepository;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.repository.OutboxRepository;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.repository.TransactionRepository;
+import com.Bank_website.Novo_Bank_Service_PLC.ledger.exception.KycNotVerifiedException;
+import com.Bank_website.Novo_Bank_Service_PLC.ledger.service.KycGateway;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.service.OutboxPublisher;
 import com.Bank_website.Novo_Bank_Service_PLC.ledger.service.TransferService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -55,6 +57,7 @@ class TransferServiceTest {
     private final RedisTemplate<String, String> redis = mock(RedisTemplate.class);
     private final ValueOperations<String, String> ops = mock(ValueOperations.class);
     private final EventPublisher publisher = mock(EventPublisher.class);
+    private final KycGateway kyc = mock(KycGateway.class);
     private final ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule());
 
     private TransferService service;
@@ -65,7 +68,7 @@ class TransferServiceTest {
     void setUp() {
         when(redis.opsForValue()).thenReturn(ops);
         service = new TransferService(accounts, txs, entries, outbox, new TransferMapper(), redis,
-                publisher, json, mock(PlatformTransactionManager.class));
+                publisher, json, kyc, mock(PlatformTransactionManager.class));
     }
 
     private Account account(UUID id, long balance) {
@@ -164,6 +167,19 @@ class TransferServiceTest {
 
         assertEquals(original.getId(), r.transactionId());
         verify(entries, never()).save(any());
+    }
+
+    @Test
+    void unverifiedSenderIsRejectedBeforeAnyWrite() {
+        happyStubs(100_000);
+        org.mockito.Mockito.doThrow(new KycNotVerifiedException("Customer KYC is not verified (status: pending)"))
+                .when(kyc).requireVerified(any());
+
+        assertThrows(KycNotVerifiedException.class, () -> service.executeTransfer(req(5_000)));
+
+        verify(txs, never()).saveAndFlush(any());
+        verify(accounts, never()).decrementBalance(any(), anyLong());
+        verify(redis).execute(any(RedisScript.class), anyList(), any());
     }
 
     @Test
