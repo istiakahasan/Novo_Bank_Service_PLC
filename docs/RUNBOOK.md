@@ -26,9 +26,9 @@ Automated version of Part B: `MAIN=... FRAUD=... NOTIF=... scripts/e2e.sh` (prin
 | `controller/CustomerController.java` | `GET /api/customers/by-account/{accountId}` (added in the Fraud/Notification step) |
 | `repository/CustomerRepository.java` | `findByAccountId`: `select c from Customer c where c.id = (select a.customerId from Account a where a.id = :accountId)` (accounts -> customers join) |
 | `service/CustomerService.java` | `getByAccountId(UUID)` |
-| `ledger/service/KycGateway.java` (new) | `requireVerified(customerId)`: Redis `kyc:{customerId}` (TTL 600 s) else customer lookup; `kyc_status != 'verified'` -> `KycNotVerifiedException`. **Only `verified` is cached** so approving a customer takes effect immediately |
-| `ledger/service/TransferService.java` | `kycGateway.requireVerified(from.getCustomerId())` inside the DB transaction, after the account checks and **before** the transaction-row insert (step f) |
-| `ledger/exception/KycNotVerifiedException.java` (new) + `GlobalExceptionHandler` | mapped to **422** |
+| `ledger/service/KycGateway.java`, `KycLookup`, `LocalKycLookup`, `HttpKycLookup` (new) | `requireVerifiedAccount(accountId)`: Redis `kyc:{accountId}` (TTL 600 s) else lookup (in-process, or HTTP `GET /api/customers/by-account/{id}` with a 5 s timeout when `CUSTOMER_SERVICE_URL` is set); not verified -> 422; customer service unreachable -> 503. **Only `verified` is cached** |
+| `ledger/service/TransferService.java` | `kycGateway.requireVerifiedAccount(fromAccount)` after the idempotency check and **before** the lock, DB transaction and balance check; replays return 200 via `TransferOutcome` |
+| `ledger/exception/KycNotVerifiedException.java`, `ServiceUnavailableException.java` (new) + `GlobalExceptionHandler` | **422** and **503** |
 | `ledger/controller/TransferController.java` | no change (exception bubbles) |
 | `ledger/dto/CreateAccountRequest.java` (new) | `customerId @NotNull`, `accountType @Pattern(^(savings\|checking)$)`, `initialDepositCents @NotNull @PositiveOrZero` |
 | `ledger/dto/AccountResponse.java` (new), `TransferMapper.toAccountResponse` | response shape |
@@ -153,7 +153,7 @@ SELECT direction, account_id, amount_cents FROM ledger_entries WHERE transaction
 -- credit | <ALICE_ACC> | 10000
 -- debit  | <ACCOUNT_ID> | 10000
 ```
-Fraud log: `FRAUD CHECK txn=<TXN1> account=<ACCOUNT_ID> amountCents=10000 flagged=false rules=[]`
+Fraud log: `FRAUD CHECK result=PASS txn=<TXN1> account=<ACCOUNT_ID> amountCents=10000 rules=[]`
 Notification log: `EMAIL sent to rahim<RUN>@example.com subject='Transfer completed'` and `SMS to <MOBILE>: Txn <TXN1> of $100.00 completed`
 
 ### Step 8: both balances
@@ -173,7 +173,7 @@ curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: appl
  \"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$ALICE_ACC\",\"amountCents\":10000,\"idempotencyKey\":\"rahim-$RUN-1\"}"
 curl -s $MAIN/api/accounts/$ACCOUNT_ID/balance | jq -c .balanceCents
 ```
-Status `201`, **same** `transactionId` as `$TXN1`; balance still `40000`.
+Status **`200`** (a new transfer is 201, an idempotent replay is 200), **same** `transactionId` as `$TXN1`; balance still `40000`.
 ```sql
 SELECT count(*) FROM transactions WHERE idempotency_key = 'rahim-<RUN>-1';        -- 1
 SELECT count(*) FROM ledger_entries WHERE transaction_id = '<TXN1>';              -- 2
@@ -198,7 +198,7 @@ curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: appl
  \"fromAccount\":\"$ALICE_ACC2\",\"toAccount\":\"$BOB_ACC\",\"amountCents\":60000,\"idempotencyKey\":\"alice-$RUN-600\"}"
 ```
 Status `201`, `amountCents: 60000`. Balances: Alice acc2 `940000`, Bob `110000`.
-Fraud log: `FRAUD CHECK txn=<id> ... amountCents=60000 flagged=false rules=[]`. Notification: `EMAIL sent to alice@example.com subject='Transfer completed'`.
+Fraud log: `FRAUD CHECK result=PASS txn=<id> ... amountCents=60000 rules=[]`. Notification: `EMAIL sent to alice@example.com subject='Transfer completed'`.
 
 ### Step 12: $6000 -> succeeds, fraud flags it
 
@@ -212,7 +212,7 @@ Status `201` (fraud is detected asynchronously and does **not** block the transf
 SELECT rule_fired, severity, details FROM fraud_alerts WHERE transaction_id = '<TXN6K>';
 -- HIGH_VALUE | medium | {"amount_cents":600000,"to_account":"bbbb...","event_created_at":"..."}
 ```
-Fraud logs: `FRAUD ALERT rule=HIGH_VALUE txn=<TXN6K> account=<ALICE_ACC2> amountCents=600000` then `FRAUD CHECK txn=<TXN6K> ... flagged=true rules=[HIGH_VALUE]`.
+Fraud logs: `FRAUD ALERT rule=HIGH_VALUE txn=<TXN6K> account=<ALICE_ACC2> amountCents=600000` then `FRAUD CHECK result=FLAGGED txn=<TXN6K> ... rules=[HIGH_VALUE]`.
 Balances: Alice acc2 `340000`, Bob `710000`.
 
 ### Step 13: $999,999 -> 422 insufficient funds
@@ -237,6 +237,41 @@ WHERE a.account_number LIKE 'ACC-%' GROUP BY 1,2;                               
 -- money conserved: seed 170000 + Rahim 50000 + Alice acc2 1000000 per fresh run
 SELECT sum(balance_cents) FROM accounts;                                             -- 1220000 on a fresh DB
 ```
+
+---
+
+### Quick 6-call check (minimal path)
+
+Uses the variables from the top (`MAIN`, `ALICE_ACC`). Field names are camelCase (`kycStatus`), not `kyc_status`.
+
+```bash
+# 1. create customer -> 201
+RESP=$(curl -s -X POST $MAIN/api/customers -H 'Content-Type: application/json' -d "{\"firstName\":\"Q\",\"lastName\":\"Check\",\"dateOfBirth\":\"1990-01-01\",\"mobileNo\":\"01$(printf '%09d' $((RANDOM*RANDOM % 1000000000)))\",\"idType\":\"nid\",\"idNumber\":\"Q$RUN\",\"addressLine1\":\"x\"}")
+export CUSTOMER_ID=$(echo "$RESP" | jq -r .id)
+curl -s -X PATCH $MAIN/api/customers/$CUSTOMER_ID/kyc -H 'Content-Type: application/json' -d '{"kycStatus":"verified","verifiedBy":"officer-1"}' | jq -r .kycStatus   # verified
+
+# 3. create account (needed before step 2 can use it) -> 201
+RESP=$(curl -s -X POST $MAIN/api/accounts -H 'Content-Type: application/json' -d "{\"customerId\":\"$CUSTOMER_ID\",\"accountType\":\"savings\",\"initialDepositCents\":50000}")
+export ACCOUNT_ID=$(echo "$RESP" | jq -r .id)
+
+# 2. customer by account -> 200, body has "kycStatus":"verified"
+curl -s -w '\n%{http_code}\n' $MAIN/api/customers/by-account/$ACCOUNT_ID | jq .
+
+# 4. transfer $100 to Alice -> 201; then grep logs: Fraud "FRAUD CHECK result=PASS txn=<id>", Notification "EMAIL sent to"
+curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{\"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$ALICE_ACC\",\"amountCents\":10000,\"idempotencyKey\":\"q-$RUN-1\"}"
+
+# 6. same key again -> 200, SAME transactionId, ledger_entries count unchanged (2 for that transaction)
+curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{\"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$ALICE_ACC\",\"amountCents\":10000,\"idempotencyKey\":\"q-$RUN-1\"}"
+#    SQL: SELECT count(*) FROM ledger_entries WHERE account_id = '<ACCOUNT_ID>' AND direction = 'debit';   -- 1
+
+# 5. unverified customer -> 422. In the Supabase SQL Editor:
+#    UPDATE customers SET kyc_status = 'pending' WHERE id = '<CUSTOMER_ID>';
+#    then the Redis cache (kyc:<ACCOUNT_ID>, up to 600 s) must be cleared or expired first: Upstash CLI  DEL kyc:<ACCOUNT_ID>
+curl -s -w '\n%{http_code}\n' -X POST $MAIN/api/transfers -H 'Content-Type: application/json' -d "{\"fromAccount\":\"$ACCOUNT_ID\",\"toAccount\":\"$ALICE_ACC\",\"amountCents\":100,\"idempotencyKey\":\"q-$RUN-2\"}"
+#    -> 422 {"status":422,"message":"Customer KYC is not verified (status: pending)","timestamp":"..."}
+```
+
+If `CUSTOMER_SERVICE_URL` is set on the ledger and the Customer Service is asleep or down, step 4/5 return `503 {"status":503,"message":"Customer service unavailable, try again shortly",...}` and nothing is written.
 
 ---
 
@@ -394,14 +429,14 @@ Run after setting the variables at the top. Each line is pass/fail. `psql "$PSQL
 18. [ ] Transfer 201: `curl -s -X POST $MAIN/api/transfers ... | jq -e '.status=="completed"'`
 19. [ ] Double entry: `psql "$PSQL_URL" -tAc "select count(*) from ledger_entries where transaction_id='$TXN1'"` -> `2`
 20. [ ] Balances after $100: `curl -s $MAIN/api/accounts/$ACCOUNT_ID/balance | jq -e '.balanceCents==40000'`
-21. [ ] Idempotent replay: second POST returns `.transactionId == $TXN1` and Rahim balance still `40000`
+21. [ ] Idempotent replay: second POST returns HTTP `200`, `.transactionId == $TXN1`, and Rahim balance still `40000`
 22. [ ] One transaction row per key: `psql "$PSQL_URL" -tAc "select count(*) from transactions where idempotency_key='rahim-$RUN-1'"` -> `1`
 23. [ ] Redis idempotency cache: `curl -s -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN" $UPSTASH_REDIS_REST_URL/get/idem:rahim-$RUN-1 | jq -e '.result!=null'`
 24. [ ] Insufficient funds 422 and nothing written: `psql "$PSQL_URL" -tAc "select count(*) from transactions where idempotency_key='rahim-$RUN-big'"` -> `0`
 25. [ ] $6000 transfer 201 and fraud alert row (wait 15 s): `psql "$PSQL_URL" -tAc "select count(*) from fraud_alerts where transaction_id='$TXN6K' and rule_fired='HIGH_VALUE'"` -> `1`
 26. [ ] Outbox drained: `psql "$PSQL_URL" -tAc "select count(*) from outbox where published=false and created_at < now() - interval '1 minute'"` -> `0`
 27. [ ] Ledger reconciles with balances (Step 14 query returns no row where `balance_cents <> ledger_net`): `psql "$PSQL_URL" -tAc "select count(*) from (select a.balance_cents, coalesce(sum(case l.direction when 'credit' then l.amount_cents else -l.amount_cents end),0) n from accounts a left join ledger_entries l on l.account_id=a.id where a.account_number like 'ACC-%' group by a.id,a.balance_cents) t where balance_cents<>n"` -> `0`
-28. [ ] Fraud saw the event: Render fraud Logs contain `FRAUD CHECK txn=<TXN1>`
+28. [ ] Fraud saw the event: Render fraud Logs contain `FRAUD CHECK result=PASS txn=<TXN1>`
 29. [ ] Notification sent the email: Notification Logs contain `EMAIL sent to rahim<RUN>@example.com subject='Transfer completed'` and Mailtrap inbox shows it
 30. [ ] Keep-alive workflow green: `gh run list --workflow=supabase-keepalive.yml -L 1 --json conclusion -q '.[0].conclusion'` -> `success`
 31. [ ] All unit tests green in CI/locally: `./mvnw -q package && (cd fraud-service && ./mvnw -q package) && (cd notification-service && ./mvnw -q package)` exits 0
