@@ -14,7 +14,10 @@
     "build:agent": "npm run build -w @novo/agent-console",
     "build": "npm run build:customer && npm run build:agent",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test -w @novo/shared"
+    "test": "npm run test -w @novo/shared",
+    "backend:up": "docker compose up -d",
+    "backend:down": "docker compose down",
+    "backend:logs": "docker compose logs -f"
   },
   "devDependencies": {
     "typescript": "^5.4.5"
