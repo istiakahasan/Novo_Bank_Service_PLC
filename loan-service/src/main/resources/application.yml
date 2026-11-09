@@ -1,0 +1,67 @@
+spring:
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  application:
+    name: loan-service
+  datasource:
+    url: jdbc:postgresql://${SUPABASE_HOST}:5432/postgres
+    username: ${SUPABASE_DB_USER:postgres}
+    password: ${SUPABASE_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 3
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+      ssl:
+        enabled: ${REDIS_SSL:true}
+      timeout: 3s
+
+server:
+  port: ${PORT:3009}
+
+qstash:
+  topic-url: ${QSTASH_TOPIC_URL}
+  token: ${QSTASH_TOKEN}
+  verify-signatures: ${QSTASH_VERIFY_SIGNATURES:true}
+  current-signing-key: ${QSTASH_CURRENT_SIGNING_KEY:}
+  next-signing-key: ${QSTASH_NEXT_SIGNING_KEY:}
+
+customer:
+  service:
+    url: ${CUSTOMER_SERVICE_URL}
+
+ledger:
+  service:
+    url: ${LEDGER_SERVICE_URL}
+
+bank:
+  settlement:
+    account:
+      id: ${BANK_SETTLEMENT_ACCOUNT_ID:00000000-0000-0000-0000-000000000001}
+
+security:
+  jwt:
+    public-key: ${JWT_PUBLIC_KEY:}
+    public-key-next: ${JWT_PUBLIC_KEY_NEXT:}
+    issuer: ${JWT_ISSUER:novo-auth}
+  system:
+    service-id: ${SERVICE_ID:loan-service}
+    service-key: ${SYSTEM_TOKEN_SECRET:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
