@@ -7,9 +7,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ENV_FILE=".env.local"
 
-[ -f "$ENV_FILE" ] || cp .env.local.example "$ENV_FILE"
+[ -f "$ENV_FILE" ] || tr -d '\r' < .env.local.example > "$ENV_FILE"
 
-if grep -Eq '^JWT_PRIVATE_KEY=.+' "$ENV_FILE" && grep -Eq '^JWT_PUBLIC_KEY=.+' "$ENV_FILE"; then
+if grep -Eq '^[[:space:]]*JWT_PRIVATE_KEY=[A-Za-z0-9+/=]{20,}' "$ENV_FILE" && grep -Eq '^[[:space:]]*JWT_PUBLIC_KEY=[A-Za-z0-9+/=]{20,}' "$ENV_FILE"; then
   echo "JWT keys already present in $ENV_FILE: nothing to do"
   exit 0
 fi
@@ -20,13 +20,13 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 openssl genrsa -out "$tmp/private.pem" 2048 2>/dev/null
-PRIVATE_B64="$(base64 < "$tmp/private.pem" | tr -d '\n')"
-PUBLIC_B64="$(openssl rsa -in "$tmp/private.pem" -pubout -outform DER 2>/dev/null | base64 | tr -d '\n')"
+PRIVATE_B64="$(base64 < "$tmp/private.pem" | tr -d '\r\n')"
+PUBLIC_B64="$(openssl rsa -in "$tmp/private.pem" -pubout -outform DER 2>/dev/null | base64 | tr -d '\r\n')"
 
 # replace "NAME=..." in place, or append it when the line is missing
 set_var() {
   local name="$1" value="$2"
-  if grep -q "^${name}=" "$ENV_FILE"; then
+  if grep -q "^[[:space:]]*${name}=" "$ENV_FILE"; then
     awk -v n="$name" -v v="$value" -F= 'BEGIN{OFS="="} $1==n {print n "=" v; next} {print}' "$ENV_FILE" > "$tmp/env"
     cat "$tmp/env" > "$ENV_FILE"
   else

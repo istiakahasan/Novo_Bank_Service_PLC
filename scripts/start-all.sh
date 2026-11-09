@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TIMEOUT="${START_TIMEOUT:-300}"
 
-./scripts/make-key.sh
+bash "$(dirname "$0")/make-key.sh"
 
 docker compose up --build -d
 
