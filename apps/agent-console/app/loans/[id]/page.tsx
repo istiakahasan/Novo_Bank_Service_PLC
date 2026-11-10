@@ -418,3 +418,4 @@ export default function AgentLoanDetailPage({ params }: { params: { id: string }
     </>
   );
 }
+

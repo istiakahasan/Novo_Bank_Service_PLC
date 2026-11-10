@@ -14,3 +14,4 @@ export const loanApplySchema = z.object({
 });
 
 export type LoanApplyFormValues = z.infer<typeof loanApplySchema>;
+

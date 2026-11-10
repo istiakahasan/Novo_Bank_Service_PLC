@@ -1,0 +1,132 @@
+flowchart TD
+    %% Clients Layer
+    subgraph Clients["User Channels & Clients"]
+        CustomerUser["Customer User (Web Browser)"]
+        AgentUser["Bank Staff / Agent (Web Browser)"]
+    end
+
+    %% Frontend Applications Layer
+    subgraph Frontend["Frontend Layer (Next.js 14 App Router Monorepo)"]
+        CustomerPortal["Customer Portal (:3100)\n- Accounts & Dashboard\n- Transfer & Payments\n- Loans & Collateral\n- Virtual Cards\n- Statement Downloads\n- Support Tickets"]
+        AgentConsole["Agent Console (:3200)\n- Customer KYC Queue\n- Loan Underwriting & Disbursement\n- Collections & Recovery\n- Treasury & ALM Dashboard\n- Regulatory Report Jobs\n- Support Ticket Desk"]
+        
+        subgraph BFFProxy["BFF & API Proxy Layer (/api/*)"]
+            SessionHandler["Session Handler (/api/session)\n- HttpOnly Cookie Storage\n- XSS Mitigation"]
+            ProxyRouter["Service Proxy Router (/api/proxy/*)\n- Injects Bearer JWT\n- Route Delegation"]
+        end
+
+        SharedPkg["@novo/shared Package\n- Typed API Clients\n- SessionTimeoutProvider (15m)\n- RoleGuard (CUSTOMER/STAFF)\n- UI Component Library"]
+    end
+
+    %% Security & Identity Authority
+    subgraph Identity["Identity & Security Authority"]
+        AuthService["Auth Service (:3008)\n- RS256 JWT Token Issuance\n- Refresh Token Rotation\n- Credential Verification (BCrypt)\n- Redis JTI Revocation List"]
+        SharedSecurity["shared-security-starter\n- Bearer JWT Validation (RS256)\n- RBAC (CUSTOMER, STAFF, SYSTEM)\n- Service-Key Authentication\n- QStash Signature Verification"]
+    end
+
+    %% Core Banking Fabric
+    subgraph CoreBanking["Core Banking Fabric"]
+        CustomerService["Customer Service (:3003)\n- Customer Onboarding & KYC\n- AML Risk Rating (Low/Med/High)\n- Account Aggregation"]
+        LedgerService["Ledger Service (:3004)\n- Double-Entry Book of Record\n- Transfer Atomicity\n- Balance Validation\n- Settlement Accounts"]
+        OutboxRelay["Transactional Outbox Relay\n- 5s Scheduled Polling\n- At-Least-Once Delivery"]
+    end
+
+    %% Asynchronous Event Broker
+    subgraph EventBroker["Asynchronous Message Broker"]
+        QStashTopic["Upstash QStash Broker\nTopic: banking-events\nFan-out Pub/Sub"]
+        QStashCron["QStash Scheduled Webhook Triggers\n- Rail Settlement Processor (30s)\n- Report Worker (60s)\n- Card Settlement Stages (60s/120s/180s)\n- Treasury Daily Snapshot\n- Loan Overdue Scheduler"]
+    end
+
+    %% Operational & Risk Services
+    subgraph RiskAndOps["Risk, Notification & Support Operations"]
+        FraudService["Fraud Service (:3005)\n- Velocity Rules Engine\n- High-Value Transfer Rules\n- AML Risk Classification"]
+        NotificationService["Notification Service (:3006)\n- Transaction Email (Mailtrap/Mailhog)\n- Onboarding Welcome Emails\n- SMS Delivery Stubs"]
+        SupportService["Support Service (:3007)\n- Ticket Management & Message Threading\n- Fraud Auto-Ticket Creation\n- Audit Trail Logging"]
+    end
+
+    %% Domain Products & Financial Simulations
+    subgraph FinancialProducts["Domain Products & Simulation Microservices"]
+        LoanService["Loan Service (:3009)\n- Loan Origination & Underwriting\n- Collateral Tracking (Property/Vehicle/...)\n- Collections & Delinquency Recovery\n- Repayment Engine & Amortization"]
+        TreasuryService["Treasury / ALM Service (:3010)\n- Liquidity Coverage Ratio (LCR)\n- Net Interest Margin (NIM)\n- Maturity Gap Buckets (<1m to >5y)"]
+        ReportingService["Reporting Service (:3011)\n- PDF Statements (OpenHTMLtoPDF)\n- Regulatory CSV (KYC, Loans, Txns)\n- Supabase Storage Signed URLs"]
+        PaymentRailService["Payment Rail Service (:3012)\n- Outbound/Inbound ACH, RTGS, SWIFT\n- Settlement Tick Engine (Redis)\n- Compensating Reversals (10% decline)"]
+        CardService["Card Service (:3013)\n- Virtual Card Issuance (Luhn-16, SHA-256)\n- Pre-auth Ledger Hold\n- 4-Stage Settlement (Auth->Batch->Clear->Fund)\n- Compensating Reversals"]
+    end
+
+    %% Shared Backing Services
+    subgraph StorageLayer["Shared Persistence & Infrastructure"]
+        SupabaseDB[("Supabase PostgreSQL Database\n- Multi-Schema & Shared System of Record\n- Row Level Security (RLS)\n- Double-Entry Balance Constraints")]
+        SupabaseRealtime["Supabase Realtime (WebSocket)\n- ticket_messages updates\n- ledger_entries updates\n- loan_repayments delinquency updates"]
+        UpstashRedis[("Upstash Redis Cache\n- Distributed Locks (Redlock)\n- Idempotency Keys\n- Rail Tick Counters\n- Token Revocation Blacklist")]
+    end
+
+    %% Client and Frontend Connections
+    CustomerUser -->|HTTPS| CustomerPortal
+    AgentUser -->|HTTPS| AgentConsole
+    CustomerPortal --> BFFProxy
+    AgentConsole --> BFFProxy
+    CustomerPortal -.-> SharedPkg
+    AgentConsole -.-> SharedPkg
+
+    %% BFF to Services
+    BFFProxy -->|Login / Refresh| AuthService
+    BFFProxy -->|HTTP REST + Bearer JWT| CustomerService
+    BFFProxy -->|HTTP REST + Bearer JWT| LedgerService
+    BFFProxy -->|HTTP REST + Bearer JWT| SupportService
+    BFFProxy -->|HTTP REST + Bearer JWT| LoanService
+    BFFProxy -->|HTTP REST + Bearer JWT| TreasuryService
+    BFFProxy -->|HTTP REST + Bearer JWT| ReportingService
+    BFFProxy -->|HTTP REST + Bearer JWT| PaymentRailService
+    BFFProxy -->|HTTP REST + Bearer JWT| CardService
+
+    %% Realtime Subscriptions
+    SupabaseRealtime -.->|WebSocket Live Push| CustomerPortal
+    SupabaseRealtime -.->|WebSocket Live Push| AgentConsole
+
+    %% Core Banking & Eventing
+    CustomerService -->|Sync Account Query| LedgerService
+    CustomerService -->|Write Outbox| SupabaseDB
+    LedgerService -->|Write Outbox & Entries| SupabaseDB
+    OutboxRelay -->|Poll Unpublished| SupabaseDB
+    OutboxRelay -->|Publish Event| QStashTopic
+
+    %% QStash Fan-out
+    QStashTopic -->|POST /webhooks/transfer-completed| FraudService
+    QStashTopic -->|POST /webhooks/transfer-completed| NotificationService
+    QStashTopic -->|POST /webhooks/fraud-alert| SupportService
+    QStashTopic -->|POST /webhooks/customer-created| NotificationService
+
+    %% QStash Cron Webhooks
+    QStashCron -->|POST /webhooks/rail-processor| PaymentRailService
+    QStashCron -->|POST /webhooks/report-worker| ReportingService
+    QStashCron -->|POST /webhooks/card-batch /clear /fund| CardService
+    QStashCron -->|POST /webhooks/treasury-snapshot| TreasuryService
+    QStashCron -->|POST /webhooks/loan-schedule| LoanService
+
+    %% Inter-service System Rest Calls (X-Service-Id / X-Service-Key)
+    LoanService -->|Disburse / Repay Transfer| LedgerService
+    PaymentRailService -->|Hold / Settle / Reverse| LedgerService
+    CardService -->|Hold / Settle / Reverse| LedgerService
+    TreasuryService -->|Aggregate Active Deposits| LedgerService
+    TreasuryService -->|Aggregate Disbursed Loans| LoanService
+    ReportingService -->|Direct SQL / API Extracts| SupabaseDB
+
+    %% Shared State Connections
+    CustomerService --- SupabaseDB
+    LedgerService --- SupabaseDB
+    FraudService --- SupabaseDB
+    SupportService --- SupabaseDB
+    LoanService --- SupabaseDB
+    TreasuryService --- SupabaseDB
+    ReportingService --- SupabaseDB
+    PaymentRailService --- SupabaseDB
+    CardService --- SupabaseDB
+    AuthService --- SupabaseDB
+
+    %% Redis State Connections
+    CustomerService --- UpstashRedis
+    LedgerService --- UpstashRedis
+    FraudService --- UpstashRedis
+    AuthService --- UpstashRedis
+    PaymentRailService --- UpstashRedis
+    CardService --- UpstashRedis

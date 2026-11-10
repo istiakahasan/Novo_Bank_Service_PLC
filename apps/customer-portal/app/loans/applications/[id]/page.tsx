@@ -307,3 +307,4 @@ export default function LoanApplicationDetailPage({ params }: { params: { id: st
     </>
   );
 }
+

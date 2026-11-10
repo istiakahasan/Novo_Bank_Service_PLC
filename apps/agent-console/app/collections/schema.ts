@@ -26,3 +26,4 @@ export const collectionActionSchema = z
   });
 
 export type CollectionActionFormValues = z.infer<typeof collectionActionSchema>;
+

@@ -21,3 +21,4 @@ export async function listReportJobs(page = 0, size = 20): Promise<ReportPage> {
 export async function createRegulatoryReportJob(data: CreateRegulatoryReportRequest): Promise<ReportJob> {
   return (await reportingClient.post<ReportJob>('/api/reports/regulatory', data)).data;
 }
+

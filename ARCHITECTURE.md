@@ -1,242 +1,345 @@
 # System Architecture: Novo Bank Service PLC
 
-Novo Bank is a production-grade retail and commercial banking microservices prototype built on Java 17 and Spring Boot 3.2.12. It utilizes an event-driven, ledger-centric architecture with immutable double-entry bookkeeping, multi-stage transaction settlement, and automated risk scoring.
+Novo Bank is an enterprise-grade retail and commercial banking platform prototype built with **Spring Boot 3.2.12 (Java 17)** and **Next.js 14 App Router (TypeScript)**. The architecture adheres to domain-driven design, immutable double-entry bookkeeping, multi-stage financial settlement, event-driven reactive messaging, and strict boundary isolation across 11 backend microservices and 2 frontend web portals.
 
 ---
 
 ## 1. High-Level Architecture Diagram
 
-```
-                                  CLIENTS & CHANNELS
-              (Mobile Banking / Web Portal / Partner & ATM Integrations)
-                                           |
-                                           v
-                             +---------------------------+
-                             |     AUTH SERVICE :3008    |
-                             |  (RS256 JWT, Token Refresh|
-                             |   Revocation, RBAC Admin) |
-                             +-------------+-------------+
-                                           | Bearer JWT
-                                           v
-    +-----------------------------------------------------------------------------------+
-    |                              CORE BANKING FABRIC                                  |
-    |                                                                                   |
-    |  +--------------------+       SYNC KYC        +--------------------+              |
-    |  | CUSTOMER SVC :3003 |<----------------------|  LEDGER SVC :3004  |              |
-    |  | Customer Profiles  |   GET /by-account     | Immutable Double-  |              |
-    |  | KYC & AML Ratings  |---------------------->| Entry Balance Book |              |
-    |  +--------------------+                       +---------+----------+              |
-    |             |                                           |                         |
-    |             | Outbox Event                              | Outbox Event            |
-    |             v                                           v                         |
-    |  +-----------------------------------------------------------------+              |
-    |  |                     TRANSACTIONAL OUTBOX RELAY                  |              |
-    |  |              Polls unpublished outbox rows every 5s             |              |
-    |  +--------------------------------+--------------------------------+              |
-    +-----------------------------------|-----------------------------------------------+
-                                        |
-                                        v
-                 +----------------------------------------------+
-                 |        UPSTASH QSTASH "banking-events"       |
-                 |      Durable Pub/Sub & Fan-Out Broker        |
-                 +----+------------------+------------------+---+
-                      |                  |                  |
-           +----------+                  |                  +----------+
-           |                             |                             |
-           v                             v                             v
-+--------------------+        +--------------------+        +--------------------+
-|   FRAUD SVC :3005  |        | NOTIFICATION :3006 |        |  SUPPORT SVC :3007 |
-| Velocity Engine    |        | Email (Mailtrap)   |        | Auto-ticket Fraud  |
-| AML Risk Rules     |        | SMS stub delivery  |        | Dispute Lifecycle  |
-+--------------------+        +--------------------+        +--------------------+
+```mermaid
+flowchart TD
+    subgraph Clients["User Channels"]
+        CustomerBrowser["Customer User Browser"]
+        StaffBrowser["Bank Staff / Agent Browser"]
+    end
 
-    +-----------------------------------------------------------------------------------+
-    |                      BUSINESS & SIMULATION MICROSERVICES                          |
-    |                                                                                   |
-    |  +--------------------+  +--------------------+  +--------------------+           |
-    |  |   LOAN SVC :3009   |  |  TREASURY SVC :3010|  | REPORTING SVC :3011|           |
-    |  | Products, Review,  |  | LCR Proxy, Net     |  | Customer PDF stmt  |           |
-    |  | Amortization,      |  | Interest Margin,   |  | Regulatory CSV     |           |
-    |  | Repayment Engine   |  | ALM Gap Buckets    |  | Async Worker       |           |
-    |  +---------+----------+  +---------+----------+  +---------+----------+           |
-    |            |                       |                       |                      |
-    |            +-----------------------+-----------------------+                      |
-    |            |                       |                       |                      |
-    |  +---------+----------+  +---------+----------+            |                      |
-    |  | PAYMENT RAIL :3012 |  |   CARD SVC :3013   |            |                      |
-    |  | Simulated ACH,     |  | Virtual Debit Card |            |                      |
-    |  | RTGS, SWIFT Rails  |  | Luhn, Daily Limits,|            |                      |
-    |  | Worker Latency/Rev |  | 4-Stage Settlement |            |                      |
-    |  +---------+----------+  +---------+----------+            |                      |
-    |            |                       |                       |                      |
-    |            +-----------------------+-----------------------+                      |
-    |                                    | SYNC (System Key Auth)                       |
-    |                                    v                                              |
-    |                           LEDGER SERVICE :3004                                    |
-    +-----------------------------------------------------------------------------------+
+    subgraph Frontend["Frontend Layer (Next.js 14 Monorepo)"]
+        CustomerPortal["Customer Portal (:3100)\nAccounts, Loans, Cards, External Rails, Statements"]
+        AgentConsole["Agent Console (:3200)\nKYC Queue, Underwriting, Collections, Treasury, Reports"]
+        
+        subgraph BFFProxy["BFF & Proxy Layer (/api/*)"]
+            SessionHandler["Session Handler (/api/session)\nHttpOnly Secure Cookies, XSS Defense"]
+            ProxyRouter["Service Proxy Router (/api/proxy/*)\nBearer JWT Injection, Service Forwarding"]
+        end
 
-SHARED BACKING SERVICES:
-- Supabase PostgreSQL: Shared relational persistence with RLS and dedicated tables.
-- Upstash Redis: Distributed locking, idempotency cache, rate limiting, and tick counters.
-- Upstash QStash: Scheduled webhooks (cron triggers for background workers).
+        SharedPkg["@novo/shared\nAPI Clients, SessionTimeoutProvider (15m), RoleGuard"]
+    end
+
+    subgraph Security["Identity & Security Authority"]
+        AuthService["Auth Service (:3008)\nRS256 JWT Issuance, Refresh Token Rotation, BCrypt"]
+        SecurityStarter["security-starter\nJWT Validation, RBAC (CUSTOMER/STAFF/SYSTEM), QStash Signatures"]
+    end
+
+    subgraph CoreBanking["Core Banking Fabric"]
+        CustomerService["Customer Service (:3003)\nKYC Verification, AML Rating, Customer Directory"]
+        LedgerService["Ledger Service (:3004)\nImmutable Double-Entry Ledger, Balance Checks, Outbox"]
+        OutboxRelay["Transactional Outbox Relay\n5s Polling Interval, Reliable At-Least-Once Delivery"]
+    end
+
+    subgraph Broker["Asynchronous Messaging & Scheduler"]
+        QStashTopic["Upstash QStash Broker\nTopic: 'banking-events' (Fan-out Pub/Sub)"]
+        QStashCron["Scheduled Webhooks\nCard Stages (60s/120s/180s), Rails (30s), Reports (60s), Treasury"]
+    end
+
+    subgraph Operations["Operational & Risk Services"]
+        FraudService["Fraud Service (:3005)\nVelocity Scoring, AML Risk Rules, High-Value Monitoring"]
+        NotificationService["Notification Service (:3006)\nTransaction Emails (Mailtrap/Mailhog), SMS Stubs"]
+        SupportService["Support Service (:3007)\nDispute Management, Auto-Ticket on Fraud Alerts"]
+    end
+
+    subgraph DomainServices["Financial Domain & Simulation Microservices"]
+        LoanService["Loan Service (:3009)\nOrigination, Collateral Tracking, Collections & Recovery"]
+        TreasuryService["Treasury / ALM Service (:3010)\nLCR Metrics, NIM Calculation, Maturity Gap Buckets"]
+        ReportingService["Reporting Service (:3011)\nOpenHTMLtoPDF Statements, CSV Regulatory Extracts"]
+        PaymentRailService["Payment Rail Service (:3012)\nACH / RTGS / SWIFT Simulator, Settlement Latency & Reversals"]
+        CardService["Card Service (:3013)\nVirtual Debit Cards, Daily Limits, Holds & 4-Stage Settlement"]
+    end
+
+    subgraph Persistence["Shared Infrastructure & State"]
+        SupabaseDB[("Supabase PostgreSQL\nMulti-schema tables, RLS, Double-entry constraints")]
+        SupabaseRealtime["Supabase Realtime (WebSocket)\nLive updates: ticket_messages, ledger_entries, loan_repayments"]
+        UpstashRedis[("Upstash Redis\nDistributed locks, Idempotency keys, Settlement ticks")]
+    end
+
+    CustomerBrowser --> CustomerPortal
+    StaffBrowser --> AgentConsole
+    CustomerPortal --> BFFProxy
+    AgentConsole --> BFFProxy
+    CustomerPortal -.-> SharedPkg
+    AgentConsole -.-> SharedPkg
+
+    BFFProxy -->|Auth| AuthService
+    BFFProxy -->|Proxied REST| CustomerService
+    BFFProxy -->|Proxied REST| LedgerService
+    BFFProxy -->|Proxied REST| SupportService
+    BFFProxy -->|Proxied REST| LoanService
+    BFFProxy -->|Proxied REST| TreasuryService
+    BFFProxy -->|Proxied REST| ReportingService
+    BFFProxy -->|Proxied REST| PaymentRailService
+    BFFProxy -->|Proxied REST| CardService
+
+    SupabaseRealtime -.->|WebSocket Push| CustomerPortal
+    SupabaseRealtime -.->|WebSocket Push| AgentConsole
+
+    CustomerService -->|Sync Account Query| LedgerService
+    CustomerService --> SupabaseDB
+    LedgerService --> SupabaseDB
+    LedgerService --> OutboxRelay
+    OutboxRelay --> QStashTopic
+
+    QStashTopic --> FraudService
+    QStashTopic --> NotificationService
+    QStashTopic --> SupportService
+    QStashCron --> PaymentRailService
+    QStashCron --> ReportingService
+    QStashCron --> CardService
+    QStashCron --> TreasuryService
+    QStashCron --> LoanService
+
+    LoanService -->|Disbursement / Repayment| LedgerService
+    PaymentRailService -->|Hold / Settle / Reverse| LedgerService
+    CardService -->|Hold / Settle / Reverse| LedgerService
+    TreasuryService -->|Deposit Aggregation| LedgerService
+    TreasuryService -->|Loan Aggregation| LoanService
+
+    DomainServices --- SupabaseDB
+    Operations --- SupabaseDB
+    Security --- SupabaseDB
+    DomainServices --- UpstashRedis
+    Operations --- UpstashRedis
 ```
+
+A standalone version is maintained in [architecture.mmd](architecture.mmd).
 
 ---
 
-## 2. Microservices Architecture Directory
+## 2. Frontend Monorepo Architecture
+
+The frontend is structured as a modern **npm workspaces monorepo** consisting of two Next.js 14 App Router applications and a shared package `@novo/shared`.
+
+```
+apps/
+  ├── customer-portal/       # Next.js 14 App Router (:3100)
+  └── agent-console/         # Next.js 14 App Router (:3200)
+packages/
+  └── shared/                # Core TypeScript interfaces, API clients, utilities
+```
+
+### 2.1 Backend-for-Frontend (BFF) & Security Pattern
+
+Client applications never handle long-lived JWT access tokens or refresh tokens directly in browser storage (`localStorage` or `sessionStorage`), which mitigates Cross-Site Scripting (XSS) token exfiltration vulnerabilities.
+
+1. **HttpOnly Cookie Authentication**:
+   - `/api/session` route handlers manage session cookies marked `HttpOnly`, `Secure`, `SameSite=Lax`.
+   - On login, access and refresh tokens returned by `auth-server (:3008)` are sealed inside the server-side cookie jar.
+   - When calling backend microservices, client requests hit `/api/proxy/[service]/*`.
+2. **Reverse Proxy & Header Injection**:
+   - The Next.js BFF extracts the JWT from the incoming session cookie, attaches an `Authorization: Bearer <jwt>` header, and transparently forwards the request to the target backend microservice port (`:3003` - `:3013`).
+3. **Session Idle Timeout Management**:
+   - `SessionTimeoutProvider` tracks user activity (keyboard, mouse movement, clicks) with a configurable **15-minute idle threshold**.
+   - At the 14-minute mark, an interactive modal warns the user with a 60-second countdown.
+   - If no activity occurs before countdown expiration, the provider triggers a POST to `/api/session/logout` and redirects the user to `/login`.
+4. **Client-Side Role Guards**:
+   - `roleGuard.tsx` wraps protected views, ensuring users with `ROLE_CUSTOMER` cannot view back-office console views, and `ROLE_STAFF` users are directed to agent console workflows.
+
+### 2.2 Live WebSocket Updates with Supabase Realtime
+
+The Next.js applications leverage Supabase Realtime WebSocket subscriptions for reactive banking updates without polling:
+- **Support Chat (`ticket_messages`)**: Both customer and agent views subscribe to `postgres_changes` on `ticket_messages` filtered by `ticket_id`, streaming incoming customer replies and staff updates immediately into the chat thread.
+- **Transaction Details (`ledger_entries`)**: Subscribes to entry status changes, immediately showing balance updates once an outbox transfer clears.
+- **Collections Worklist (`loan_repayments`)**: Automatically reflects repayment status transitions (`PENDING` -> `OVERDUE` -> `PAID`) in real time across agent workstations.
+
+### 2.3 Page & Feature Directory
+
+#### Customer Portal (`apps/customer-portal` :3100)
+- `/dashboard`: Consolidated account balances, recent transactions, quick actions.
+- `/transfer`: Internal account-to-account transfer with Redis idempotency check.
+- `/transactions/[id]`: Transaction details, double-entry breakdown, live Realtime status.
+- `/loans`: Retail loan catalog, current loan status, collateral pledges, repayment schedule.
+- `/loans/apply`: Multi-step loan application wizard with collateral valuation details.
+- `/loans/applications/[id]`: Repayment execution, amortized breakdown, collateral pledge status.
+- `/cards`: Virtual debit card issuance (masked Luhn-16), freeze/unfreeze controls.
+- `/external-payments`: External transfer wizard (ACH, RTGS, SWIFT) with routing numbers and transaction history.
+- `/statements`: Customer account statement generation (PDF) with presigned download links.
+- `/support`, `/support/new`, `/support/[id]`: Dispute ticketing with real-time staff messaging.
+- `/profile`: Customer KYC status, AML risk tier, contact details.
+
+#### Agent Console (`apps/agent-console` :3200)
+- `/dashboard`: High-level operational metrics, ticket queues, pending loan counter.
+- `/kyc-queue`: Customer onboarding files, AML risk rating adjustments, KYC approve/reject.
+- `/loans/review`: Loan underwriting queue, debt-to-income analysis, collateral inspection.
+- `/loans/disburse`: Approved loan disbursement trigger to customer account.
+- `/loans/[id]`: Detailed credit file, collateral details, repayment audit logs.
+- `/collections`: Overdue repayments queue with real-time delinquency feed, recovery action logger (`PHONE_CALL`, `DEMAND_LETTER`, `LEGAL_NOTICE`), and typed "WRITE OFF" modal.
+- `/treasury`: ALM overview, Liquidity Coverage Ratio (LCR), Net Interest Margin (NIM), interest rate gap buckets, and inline historical SVG chart.
+- `/reports`: Regulatory CSV report generation (`DAILY_TRANSACTION_SUMMARY`, `LOAN_PORTFOLIO`, `KYC_STATUS`).
+- `/tickets`, `/tickets/[id]`: Customer dispute triage and real-time message response desk.
+
+---
+
+## 3. Backend Microservices Architecture
 
 ### 1. Auth Service (`:3008`, `auth-server/`)
-- **Role**: Identity provider and authorization authority.
+- **Role**: Identity authority and token issuer.
 - **Responsibilities**:
-  - Issues RS256 signed JSON Web Tokens (15-minute lifespan).
-  - Handles refresh token rotation with reuse detection (revoking compromised token families).
-  - Maintains token revocation blocklist in Redis (`revoked:jti:{jti}`).
-  - Manages system users and credential verification with BCrypt.
+  - Issues RS256 signed JSON Web Tokens (15-minute TTL) with claims: `sub` (userId), `cid` (customerId), `roles` (`ROLE_CUSTOMER`, `ROLE_STAFF`).
+  - Implements opaque refresh token rotation with reuse detection (revoking token family on breach).
+  - Maintains token revocation blacklist in Redis (`revoked:jti:{jti}`).
+  - Credential verification using BCrypt with salt rounds.
 
 ### 2. Customer Service (`:3003`, root `src/`)
-- **Role**: Master customer data and compliance profile manager.
+- **Role**: Customer master data and onboarding compliance.
 - **Responsibilities**:
-  - Customer onboarding, identity documents, and status lifecycle (`unverified`, `pending`, `verified`, `rejected`).
-  - AML risk rating classification (`low`, `medium`, `high`).
-  - Account aggregation via synchronous Ledger lookup.
+  - Manages customer lifecycle: `UNVERIFIED` -> `PENDING` -> `VERIFIED` / `REJECTED`.
+  - AML risk rating classification (`LOW`, `MEDIUM`, `HIGH`).
+  - Synchronous account aggregation via internal Ledger client (`GET /api/accounts?customerId=`).
 
 ### 3. Ledger Service (`:3004`, root `src/`)
-- **Role**: The authoritative financial book of record.
+- **Role**: Double-entry book of record and transaction engine.
 - **Responsibilities**:
-  - Implements immutable double-entry bookkeeping (`ledger_entries`).
-  - Enforces atomic balance mutation with non-negative balance checks (`balance_cents >= 0`).
-  - Synchronous pre-debit KYC gate via Customer Service (`/api/customers/by-account/{id}`).
-  - Distributed idempotency check (Redis + `UNIQUE(idempotency_key)` constraint).
-  - Outbox publisher running on 5s intervals pushing events to QStash topic `banking-events`.
-  - Account query endpoints (`GET /api/accounts/summary` for Treasury, `GET /api/accounts?accountNumber=` for Rails).
+  - Enforces immutable double-entry bookkeeping: every transaction consists of balanced debits and credits.
+  - Balance validation: prevents overdrafts on customer deposit accounts.
+  - Manages internal system settlement accounts (`CARD_SETTLEMENT`, `MERCHANT_SETTLEMENT`, `RAIL_SETTLEMENT`, `LOAN_DISBURSEMENT`).
+  - Transactional Outbox pattern: writes domain events to `outbox` within the database transaction; scheduled outbox relay polls every 5s and forwards events to Upstash QStash topic `banking-events`.
 
 ### 4. Fraud Service (`:3005`, `fraud-service/`)
-- **Role**: Real-time and asynchronous fraud risk engine.
+- **Role**: Real-time and asynchronous transaction risk scoring.
 - **Responsibilities**:
-  - Evaluates `transfer.completed` events against velocity rules (>10 transfers/min in Redis) and threshold rules (>$5,000).
-  - Enforces onboarding risk assessment for newly registered customers.
-  - Generates alerts in `fraud_alerts` and flags high-risk transactions.
+  - Consumes QStash webhook `POST /webhooks/transfer-completed`.
+  - Rule evaluation:
+    - Velocity Engine: flags accounts exceeding frequency thresholds ($N$ transfers per minute).
+    - High-Value Rule: flags transfers exceeding $10,000.00.
+    - AML Classifier: correlates customer AML risk tier with transaction velocity.
+  - Emits `fraud-alert` events to QStash, automatically triggering dispute tickets in Support Service.
 
 ### 5. Notification Service (`:3006`, `notification-service/`)
-- **Role**: Asynchronous communication dispatcher.
+- **Role**: Customer communications dispatch.
 - **Responsibilities**:
-  - Consumes `transfer.completed` and `customer.created` events.
-  - Sends transactional emails via Mailtrap SMTP.
-  - Dispatches mock SMS alerts with sensitive data masking (`MaskingUtil`).
-  - Caches customer lookup details in Redis with 600s TTL.
+  - Consumes QStash webhooks for `customer-created` and `transfer-completed`.
+  - Transaction alert emails dispatched via Spring `JavaMailSender` (configured for Mailtrap / Mailhog).
+  - SMS dispatch stubs for multi-channel notification simulation.
 
 ### 6. Support Service (`:3007`, `support-service/`)
-- **Role**: Dispute management and customer support ticketing.
+- **Role**: Customer disputes and audit logging.
 - **Responsibilities**:
-  - Append-only ticket message thread with customer and staff roles.
-  - Auto-creates dispute tickets upon ingestion of `fraud_flagged` events.
-  - Publishes `ticket.created` and `ticket.status_changed` events.
+  - Customer ticket creation and threaded messages.
+  - Automated ticket generation upon receiving `fraud-alert` events.
+  - Real-time event streaming via Supabase Realtime for instant agent-customer communication.
 
 ### 7. Loan Service (`:3009`, `loan-service/`)
-- **Role**: Credit origination, underwriting workflow, and loan repayment.
+- **Role**: Retail lending lifecycle, collateral registry, and debt recovery.
 - **Responsibilities**:
-  - Manages loan products (personal, auto, mortgage) with interest rates, amount limits, and tenures.
-  - Credit workflow: `SUBMITTED` -> `UNDER_REVIEW` -> `APPROVED` / `REJECTED` -> `DISBURSED` -> `CLOSED`.
-  - Disburses approved loans by posting transfers to the Ledger Service (`fromAccountId = LOAN_DISBURSEMENT_ACCOUNT_ID`).
-  - Executes scheduled repayment deductions with interest amortization calculations.
-  - QStash webhook (`POST /webhooks/loan-schedule`) marks overdue repayments.
+  - Product catalog management (limits, interest rates, term months).
+  - Application underwriting: credit evaluation, approval, rejection.
+  - Disbursement engine: calls Ledger Service via SYSTEM token to debit `LOAN_DISBURSEMENT_ACCOUNT_ID` and credit the customer account.
+  - Amortization & Repayment: calculates principal and interest breakdown, debits customer account on payment.
+  - **Collateral Management** (`loan_collateral` table):
+    - Pledges assets for secured loans: `PROPERTY`, `VEHICLE`, `FIXED_DEPOSIT`, `SECURITIES`, `OTHER`.
+    - Tracks estimated valuation cents and valuation date.
+    - Manages collateral status: `PLEDGED` -> `RELEASED` or `SEIZED`.
+  - **Collections & Recovery Workflows** (`collection_actions` table):
+    - QStash cron (`/webhooks/loan-schedule`) marks overdue repayments.
+    - Overdue collections queue (`GET /api/loans/collections/overdue`).
+    - Staff action logging: `REMINDER_SENT`, `PHONE_CALL`, `DEMAND_LETTER`, `LEGAL_NOTICE`, `WRITE_OFF_PROPOSED`, `WRITE_OFF_APPROVED`.
 
 ### 8. Treasury / ALM Service (`:3010`, `treasury-service/`)
-- **Role**: Balance sheet analytics, asset-liability management (ALM), and liquidity monitoring.
+- **Role**: Balance sheet asset-liability analytics and liquidity monitoring.
 - **Responsibilities**:
-  - Read-only analytical service querying Ledger aggregate deposits and Loan Service disbursed balances.
-  - Computes Liquidity Coverage Ratio (LCR proxy):
-    $$\text{LCR} = \frac{\text{Total Deposits} - \text{Total Loans}}{\text{Total Deposits}}$$
-  - Computes Net Interest Margin (NIM) in basis points:
-    $$\text{NIM} = \frac{\text{Loan Interest Income} - \text{Deposit Interest Expense}}{\text{Total Earning Assets}}$$
-  - Computes ALM interest rate gap buckets (`<1m`, `1-3m`, `3-12m`, `1-5y`, `>5y`).
-  - Generates periodic treasury snapshots in `treasury_snapshots`.
+  - Liquidity Coverage Ratio (LCR) proxy: queries total active deposits from Ledger and active loans from Loan Service.
+  - Net Interest Margin (NIM) calculation in basis points:
+    $$\text{NIM} = \frac{\text{Loan Interest Income} - \text{Deposit Interest Expense}}{\text{Total Earning Assets}} \times 10{,}000$$
+  - Maturity Gap Buckets: calculates asset/liability duration mismatches across `<1m`, `1-3m`, `3-12m`, `1-5y`, and `>5y`.
+  - Scheduled daily snapshots persisted in `treasury_snapshots`.
 
 ### 9. Reporting Service (`:3011`, `reporting-service/`)
-- **Role**: Document generation and regulatory compliance extract generator.
+- **Role**: Asynchronous statement generation and regulatory extracts.
 - **Responsibilities**:
-  - Asynchronously generates customer monthly account statements in PDF format using OpenHTMLtoPDF.
-  - Generates regulatory CSV reports (`DAILY_TRANSACTION_SUMMARY`, `LOAN_PORTFOLIO`, `KYC_STATUS`).
-  - Integrates with Supabase Storage for secure presigned file downloads.
-  - Background report execution driven by QStash webhook `POST /webhooks/report-worker`.
+  - Customer PDF statements: renders account statements from HTML templates via OpenHTMLtoPDF.
+  - Regulatory CSV extracts: `DAILY_TRANSACTION_SUMMARY`, `LOAN_PORTFOLIO`, `KYC_STATUS` via OpenCSV.
+  - Cloud file persistence: uploads rendered artifacts to Supabase Storage and generates presigned download URLs with 24-hour expiration.
+  - Background execution worker (`POST /webhooks/report-worker`) triggered every 60s by QStash.
 
 ### 10. Payment Rail Service (`:3012`, `payment-rail-service/`)
-- **Role**: External payment network simulator (ACH, RTGS, SWIFT_SIM).
+- **Role**: External clearing house and payment network simulator.
 - **Responsibilities**:
-  - Outbound transfers: Validates rail limits (ACH $10K, RTGS $1M, SWIFT $5M), debits customer internal account to `RAIL_SETTLEMENT_ACCOUNT_ID` via Ledger, advances to `PROCESSING`.
-  - Inbound webhook: Validated via `X-Rail-Secret` or QStash signature; resolves customer account by account number and credits it from `RAIL_SETTLEMENT_ACCOUNT_ID`.
-  - QStash scheduled worker (`POST /webhooks/rail-processor` every 30s):
-    - Tracks latency ticks in Redis (`ACH`: 3 ticks ~90s, `RTGS`: 1 tick ~30s, `SWIFT_SIM`: 2 ticks ~60s).
-    - Simulates 10% network decline rate with automated compensating reversal transfer from settlement account back to customer account (`status = RETURNED`).
+  - Outbound transfers across simulated networks:
+    - `ACH`: Limit $10,000, 3 ticks (~90s latency).
+    - `RTGS`: Limit $1,000,000, 1 tick (~30s latency).
+    - `SWIFT_SIM`: Limit $5,000,000, 2 ticks (~60s latency).
+  - Synchronously debits customer account to `RAIL_SETTLEMENT_ACCOUNT_ID` via Ledger Service and enters `PROCESSING` status.
+  - Scheduled rail processor (`POST /webhooks/rail-processor` every 30s):
+    - Increments Redis tick counters.
+    - Simulates 10% network decline rate; automatically issues compensating reversal transfers from `RAIL_SETTLEMENT_ACCOUNT_ID` back to customer account (`ext-reverse-{paymentId}`).
+  - Inbound webhook (`POST /webhooks/inbound-payment`): credits destination customer account from `RAIL_SETTLEMENT_ACCOUNT_ID`.
 
 ### 11. Card Service (`:3013`, `card-service/`)
-- **Role**: Virtual debit card issuance and four-stage clearing and settlement engine.
+- **Role**: Virtual debit card issuance and 4-stage card settlement simulation.
 - **Responsibilities**:
-  - Generates Luhn-valid 16-digit card numbers with 3-digit CVV and 4-year expiry.
-  - Security invariant: Plaintext card numbers and CVVs are NEVER stored or returned. Only SHA-256 hashes (`card_number_hash`, `cvv_hash`) and masked strings (`****-****-****-1234`) are persisted.
-  - Authorization flow (`POST /api/cards/authorize`):
-    - Enforces daily spend limits ($5,000.00 default).
-    - Calls Fraud Service `/webhooks/transfer-completed` synthetic check.
-    - Creates Ledger hold via transfer to `CARD_SETTLEMENT_ACCOUNT_ID`.
-    - Generates 6-character alphanumeric authorization code and sets stage `AUTHORIZED`.
-  - Four-stage settlement state machine:
-    1. `AUTHORIZED`: Hold active in settlement account.
-    2. `BATCHED`: Picked up by 60s QStash cron (`/webhooks/card-batch`).
-    3. `CLEARED`: Picked up by 120s QStash cron (`/webhooks/card-clear`).
-    4. `FUNDED`: Picked up by 180s QStash cron (`/webhooks/card-fund`), completing the Ledger transfer to `MERCHANT_SETTLEMENT_ACCOUNT_ID`.
-    - Compensating reversals: Failure at any stage moves transaction to `REVERSED` and executes a reversal transfer back to customer.
+  - Virtual Card Issuance (`POST /api/cards`):
+    - Generates 16-digit Luhn-valid card numbers, 3-digit CVVs, and 4-year expiration dates.
+    - Security invariant: Plaintext is NEVER stored or returned; only SHA-256 hashes (`card_number_hash`, `cvv_hash`) and masked strings (`****-****-****-1234`) are persisted.
+  - Authorization & Hold (`POST /api/cards/authorize`):
+    - Validates CVV hash, card status (`ACTIVE`), and daily spend limits ($5,000.00 default).
+    - Synthetically calls Fraud Service for pre-auth screening.
+    - Creates a Ledger hold by debiting customer account into `CARD_SETTLEMENT_ACCOUNT_ID`.
+    - Generates 6-character auth code and transitions transaction to `AUTHORIZED`.
+  - 4-Stage Settlement Engine (QStash Crons):
+    1. `AUTHORIZED` -> `BATCHED` (`POST /webhooks/card-batch`, every 60s)
+    2. `BATCHED` -> `CLEARED` (`POST /webhooks/card-clear`, every 120s)
+    3. `CLEARED` -> `FUNDED` (`POST /webhooks/card-fund`, every 180s): transfers funds from `CARD_SETTLEMENT_ACCOUNT_ID` to `MERCHANT_SETTLEMENT_ACCOUNT_ID`.
+    - Compensating reversals: Stage failures trigger compensating reversal transfers back to the customer's account (`card-reverse-{cardTxnId}`).
 
 ---
 
-## 3. Data Model & Database Migrations
+## 4. Shared Security Starter Library
 
-The database is structured in PostgreSQL with Row Level Security (RLS) enabled on all tables:
+The `security-starter` (and `shared-security-starter`) module is a shared Spring Boot library imported by all microservices to enforce uniform security:
 
-| Script | Tables Created / Modified | Purpose |
-|---|---|---|
-| `db/schema.sql` | `customers`, `accounts`, `transactions`, `ledger_entries`, `outbox` | Core banking, double-entry ledger, append-only rules, and outbox relay |
-| `db/seed.sql` | Baseline test seed data | Test users (Alice, Bob, Charlie) and funded accounts |
-| `db/002_fraud_alerts.sql` | `fraud_alerts` | Fraud detection alert records |
-| `db/003_auth.sql` | `auth_users`, `refresh_tokens` | Authentication credentials and token rotation state |
-| `db/005_support.sql` | `support_tickets`, `ticket_messages` | Customer support ticket threads |
-| `db/006_auth_server.sql` | `auth_users`, `oauth2_registered_client` | Extended auth provider tables |
-| `db/007_loans.sql` | `loan_products`, `loan_applications`, `loan_repayments` | Retail lending products, loan files, and repayment schedules |
-| `db/008_treasury.sql` | `treasury_snapshots`, `alm_gap_buckets` | Treasury balance sheet snapshots and gap analyses |
-| `db/009_reporting.sql` | `report_jobs` | PDF and CSV asynchronous reporting jobs |
-| `db/010_payment_rails.sql` | `external_payments` | Outbound and inbound payment rail simulations |
-| `db/011_cards.sql` | `cards`, `card_transactions` | Virtual card hashes and four-stage transaction records |
-
----
-
-## 4. Ledger & Financial Integrity Invariants
-
-1. **Strict Balance Conservation**: Money cannot be created or destroyed. Every transaction consists of matched pairs of debits and credits in `ledger_entries`.
-2. **Append-Only Ledger**: PostgreSQL rules intercept and discard `UPDATE` and `DELETE` commands on `ledger_entries`. Corrections require compensating ledger transactions.
-3. **Double-Spend Prevention**:
-   - Redis distributed locking (`SET lock:{accountId} token NX EX 5`).
-   - PostgreSQL unique constraints on `transactions.idempotency_key`.
-   - Redis cache key (`idempotency:{key}`) returning identical cached responses on duplicate requests.
-4. **Isolated Settlement Accounts**: Inter-service clearing uses dedicated system settlement accounts:
-   - `CARD_SETTLEMENT_ACCOUNT_ID`: Holds authorized funds until card transaction funding.
-   - `MERCHANT_SETTLEMENT_ACCOUNT_ID`: Receives cleared card funds upon final settlement.
-   - `RAIL_SETTLEMENT_ACCOUNT_ID`: Absorbs external rail debit/credit positions.
-   - `LOAN_DISBURSEMENT_ACCOUNT_ID`: Source account for newly disbursed customer loans.
-
----
-
-## 5. Security & Inter-Service Authentication
-
-Communication security is provided by the shared module `security-starter`:
-
-1. **User Authentication (RBAC)**:
-   - JWT RS256 token validation with local public key verification (`JWT_PUBLIC_KEY`).
-   - Role matrix:
-     - `ROLE_CUSTOMER`: Access limited strictly to own records via the `cid` (customerId) claim in token.
-     - `ROLE_STAFF`: Full operational and back-office access.
-2. **Service-to-Service Calls (System Token)**:
-   - Inter-service REST calls bypass user tokens using HTTP headers:
-     - `X-Service-Id`: Name of the calling service (e.g., `card-service`, `loan-service`).
+1. **RS256 JWT Authentication**:
+   - Parses `Authorization: Bearer <token>` headers.
+   - Validates signatures locally using the Auth Service RSA public key (`JWT_PUBLIC_KEY`).
+   - Extracts claims into an `AuthPrincipal` with authorities: `ROLE_CUSTOMER`, `ROLE_STAFF`.
+2. **Inter-Service REST Authentication (SYSTEM Role)**:
+   - Services communicate synchronously using HTTP headers:
+     - `X-Service-Id`: Identifier of the invoking microservice.
      - `X-Service-Key`: Shared secret string matching `SYSTEM_TOKEN_SECRET`.
-   - Populates an `AuthPrincipal` with role `ROLE_SYSTEM`.
-3. **Webhook Signatures**:
-   - Inbound webhook calls from QStash are verified against the cryptographic `Upstash-Signature` header (JWT HS256 containing a SHA-256 hash of the request body and timestamp validation with a 60-second skew tolerance).
+   - Populates `AuthPrincipal` with `ROLE_SYSTEM`, bypassing user token requirements.
+3. **QStash Webhook Signature Verification**:
+   - Webhook endpoints verify the `Upstash-Signature` header (HMAC SHA-256 JWT signed with current/next signing keys).
+   - Validates request body hash and timestamp against clock skew (< 60s).
+
+---
+
+## 5. Database Schema & Migration Catalog
+
+All microservices persist to a unified Supabase PostgreSQL database with Row Level Security (RLS) enabled:
+
+| Migration File | Primary Tables / Objects | Purpose |
+|---|---|---|
+| `db/schema.sql` | `customers`, `accounts`, `transactions`, `ledger_entries`, `outbox` | Core banking, double-entry bookkeeping, append-only rules, and outbox relay. |
+| `db/seed.sql` | Initial accounts and customers | Test accounts (Alice, Bob, Charlie) and system settlement accounts. |
+| `db/002_fraud_alerts.sql` | `fraud_alerts` | Fraud evaluation logs and alert tracking. |
+| `db/003_auth.sql` | `auth_users`, `refresh_tokens` | Authentication credentials and refresh token storage. |
+| `db/005_support.sql` | `support_tickets`, `ticket_messages` | Support tickets and threaded messages. |
+| `db/006_auth_server.sql` | Extended OAuth2 client tables | Extended auth provider tables. |
+| `db/007_loans.sql` | `loan_products`, `loan_applications`, `loan_repayments` | Retail lending catalog, loan underwriting, and repayment schedules. |
+| `db/008_treasury.sql` | `treasury_snapshots`, `alm_gap_buckets` | ALM balance sheet snapshots and gap analyses. |
+| `db/009_reporting.sql` | `report_jobs` | Asynchronous PDF/CSV reporting jobs. |
+| `db/010_payment_rails.sql` | `external_payments` | External transfers, routing info, and settlement stages. |
+| `db/011_cards.sql` | `cards`, `card_transactions` | Virtual debit cards, hashes, daily limits, and 4-stage transactions. |
+| `db/012_loan_collateral_collections.sql` | `loan_collateral`, `collection_actions` | Pledged collateral registry and collections recovery actions. |
+
+---
+
+## 6. Financial Integrity Invariants
+
+1. **Balance Conservation**: Money cannot enter or leave the system without explicit ledger entries. All transactions are zero-sum pairs of debits and credits.
+2. **PostgreSQL Append-Only Guard**: Database-level rules reject `UPDATE` and `DELETE` on `ledger_entries`. Ledger adjustments must be executed as new compensating transactions.
+3. **Idempotency & Race Protection**:
+   - High-throughput endpoints acquire Redis distributed locks on the account ID before executing balance checks.
+   - Idempotency keys (`Idempotency-Key` header) prevent double-spend or duplicate charges during network retries.
+4. **Dedicated System Settlement Accounts**:
+   - `CARD_SETTLEMENT_ACCOUNT_ID`: Escrows funds during the virtual card clearing cycle.
+   - `MERCHANT_SETTLEMENT_ACCOUNT_ID`: Terminal account receiving cleared card transaction funds.
+   - `RAIL_SETTLEMENT_ACCOUNT_ID`: Terminal account for external payment rail debits/credits.
+   - `LOAN_DISBURSEMENT_ACCOUNT_ID`: Bank capital source for new loan disbursements.

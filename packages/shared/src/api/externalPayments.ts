@@ -21,3 +21,4 @@ export async function listExternalPayments(params?: {
 export async function getExternalPayment(id: string): Promise<ExternalPayment> {
   return (await externalPaymentClient.get<ExternalPayment>(`/api/external-payments/${id}`)).data;
 }
+

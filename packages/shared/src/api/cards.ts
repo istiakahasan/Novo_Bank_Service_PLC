@@ -17,3 +17,4 @@ export async function createCard(data: CreateCardRequest): Promise<Card> {
 export async function updateCardStatus(id: string, data: UpdateCardStatusRequest): Promise<Card> {
   return (await cardClient.patch<Card>(`/api/cards/${id}/status`, data)).data;
 }
+

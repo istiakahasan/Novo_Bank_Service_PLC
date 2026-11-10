@@ -1,5 +1,52 @@
 # Changes
 
+## 2026-11-10 — Frontend Next.js 14 Monorepo (Customer Portal & Agent Console)
+
+- **Frontend Monorepo Architecture**:
+  - Maintained npm workspaces monorepo: `apps/customer-portal` (`:3100`), `apps/agent-console` (`:3200`), and shared package `@novo/shared`.
+  - Next.js 14 App Router with TypeScript, Tailwind CSS, TanStack Query, React Hook Form, and Zod validation.
+  - BFF pattern: Server-side route handlers at `/api/session` managing `HttpOnly`, `SameSite=Lax` cookies; `/api/proxy/[service]/*` reverse proxies injecting Bearer JWT tokens to prevent client-side script token access.
+- **Customer Portal Pages (`apps/customer-portal`)**:
+  - `/loans`: Retail loan catalog browsing, active applications listing, collateral pledges, and repayment schedule preview.
+  - `/loans/apply`: Multi-step loan application form with interest calculation and optional collateral pledge step.
+  - `/loans/applications/[id]`: Application detail view, amortized repayment breakdown, loan collateral status, and repayment action triggers.
+  - `/cards`: Virtual debit card issuance modal (generating Luhn-16 valid cards), masked display (`****-****-****-1234`), and toggle freeze/unfreeze actions.
+  - `/external-payments`: Outbound external transfer wizard with rail selection (ACH, RTGS, SWIFT), account & routing number validation, and transaction history.
+  - `/statements`: On-demand statement generation request (period start/end), status polling, and Supabase Storage presigned download links.
+  - `/dashboard` & `/transactions/[id]`: Integrated Supabase Realtime WebSocket subscriptions on `ledger_entries` for live balance and status updates.
+- **Agent Console Pages (`apps/agent-console`)**:
+  - `/loans/review`: Loan underwriting queue with debt-to-income analysis, collateral inspection, and approve/reject actions.
+  - `/loans/disburse`: Approved loan file queue with one-click disbursement execution calling Ledger Service.
+  - `/loans/[id]`: Consolidated loan file view with collateral valuation details and repayment history.
+  - `/collections`: Overdue repayments worklist with real-time delinquency feed, recovery action logger (`PHONE_CALL`, `DEMAND_LETTER`, `LEGAL_NOTICE`), and a typed "WRITE OFF" modal (`WRITE_OFF_PROPOSED` / `WRITE_OFF_APPROVED`).
+  - `/treasury`: ALM balance sheet overview displaying Liquidity Coverage Ratio (LCR), Net Interest Margin (NIM), maturity gap distribution buckets, and an inline SVG historical liquidity chart.
+  - `/reports`: Regulatory CSV report generation (`DAILY_TRANSACTION_SUMMARY`, `LOAN_PORTFOLIO`, `KYC_STATUS`) with direct download.
+  - `/tickets/[id]`: Customer dispute desk with live Supabase Realtime message updates.
+- **Cross-Cutting Capabilities (`packages/shared`)**:
+  - Typed API clients: `loans.ts`, `treasury.ts`, `reports.ts`, `externalPayments.ts`, `cards.ts`.
+  - Supabase Realtime integration: WebSocket listeners for `ticket_messages`, `ledger_entries`, and `loan_repayments`.
+  - Session idle timeout: `SessionTimeoutProvider` with 15-minute inactivity timer, 60-second warning countdown modal, and automatic session logout.
+  - Role guards: Client-side route protection `roleGuard.tsx` enforcing `ROLE_CUSTOMER` and `ROLE_STAFF` boundary integrity.
+  - Shared UI primitives: `Modal`, `Skeleton`, `EmptyState`, and accessible error boundaries (`error.tsx`).
+
+---
+
+## 2026-11-10 — Loan Service: Collateral Management & Collections/Recovery (:3009)
+
+- **Database Schema**: Added `db/012_loan_collateral_collections.sql`:
+  - `loan_collateral`: Pledged collateral tracking (`PROPERTY`, `VEHICLE`, `FIXED_DEPOSIT`, `SECURITIES`, `OTHER`), estimated value cents, valuation date, and status (`PLEDGED`, `RELEASED`, `SEIZED`).
+  - `collection_actions`: Delinquency action logs (`REMINDER_SENT`, `PHONE_CALL`, `DEMAND_LETTER`, `LEGAL_NOTICE`, `WRITE_OFF_PROPOSED`, `WRITE_OFF_APPROVED`), notes, and staff audit tracking.
+- **Collateral Management Endpoints**:
+  - `POST /api/loans/applications/{id}/collateral`: Staff registers collateral pledge against a loan application.
+  - `GET /api/loans/applications/{id}/collateral`: Fetches pledged assets for an application.
+  - `PATCH /api/loans/collateral/{id}/release`: Staff releases pledged collateral upon full loan payoff.
+- **Collections & Recovery Endpoints**:
+  - `GET /api/loans/collections/overdue`: Staff retrieves all overdue repayments with days past due and borrower details.
+  - `POST /api/loans/collections/{repaymentId}/action`: Staff logs collection recovery actions with audit notes.
+- **Settlement & Audit Rules**: Write-off approval requires explicit staff role authorization and audit logging.
+
+---
+
 ## 2026-11-10 — Card Service (:3013)
 
 - **New Microservice**: Added `card-service/` (port `:3013`, Java 17, Spring Boot 3.2.12).

@@ -25,3 +25,4 @@ export async function createTreasurySnapshot(): Promise<TreasurySnapshot> {
 export async function getTreasurySnapshots(from?: string, to?: string): Promise<TreasurySnapshot[]> {
   return (await treasuryClient.get<TreasurySnapshot[]>('/api/treasury/snapshots', { params: { from, to } })).data;
 }
+

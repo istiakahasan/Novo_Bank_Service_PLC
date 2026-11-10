@@ -59,3 +59,4 @@ export async function getOverdueRepayments(): Promise<OverdueRepayment[]> {
 export async function recordCollectionAction(repaymentId: string, data: CollectionActionRequest): Promise<CollectionAction> {
   return (await loanClient.post<CollectionAction>(`/api/loans/collections/${repaymentId}/action`, data)).data;
 }
+
