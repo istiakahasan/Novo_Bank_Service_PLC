@@ -1,72 +1,117 @@
 # Novo Bank Service PLC
 
-Banking prototype on free tiers: Spring Boot 3.2 / Java 17, Supabase PostgreSQL, Upstash Redis + QStash, Render, Mailtrap.
+Production-grade banking prototype built with Spring Boot 3.2 / Java 17, Supabase PostgreSQL, Upstash Redis, Upstash QStash, and Mailtrap.
 
 ```
-                 CLIENT / curl
-                       |
-          +------------+------------+
-          v                         v
-   CUSTOMER SVC  :3003        LEDGER SVC  :3004      (one app in this repo)
-   POST /api/customers        POST /api/transfers
-   GET  /api/customers/...    POST /api/accounts
-          |                   GET  /api/accounts/{id}/balance
-          |                         |
-          |   (1) SYNC: KYC check before debit
-          |<------------------------+
-          |
-          | (2) ASYNC: events -> QStash URL group "banking-events"
-          v
-   +------------------------------------------+
-   |   UPSTASH QSTASH  "banking-events"       |
-   |   fan-out, independent retries per URL   |
-   +---------+------------------+-------------+
-             v                  v
-      FRAUD SVC :3005    NOTIFICATION SVC :3006
-      /webhooks/transfer-completed
-      /webhooks/customer-created
-             |                  |
-             +--- SYNC: GET customer (Redis-cached) ---> CUSTOMER SVC
+                              CLIENT / API GATEWAY / WEB CONSOLE
+                                              |
+      +-------------------+-------------------+-------------------+-------------------+
+      |                   |                   |                   |                   |
+      v                   v                   v                   v                   v
+AUTH SVC :3008      CUSTOMER SVC :3003  LEDGER SVC :3004    LOAN SVC :3009      CARD SVC :3013
+(JWT, OAuth2,       (Profiles, KYC,     (Accounts, double-  (Origination,       (Virtual issuance,
+ session/refresh)    AML rating)         entry transfers)    amortization)       holds & 4-stage)
+      |                   ^                   ^                   |                   |
+      |                   |    SYNC Ledger    |                   |                   |
+      +-------------------+-------------------+-------------------+-------------------+
+                          |                   |
+                          | (Outbox Relay)    |
+                          v                   |
+                 +-----------------------+    |
+                 | UPSTASH QSTASH TOPIC  |    |
+                 |   "banking-events"    |    |
+                 +-----------+-----------+    |
+                             |                |
+             +---------------+---------------+                |
+             |                               |                |
+             v                               v                v
+      FRAUD SVC :3005               NOTIFICATION SVC :3006  SUPPORT SVC :3007
+      (Velocity, High Value,         (Email & SMS async      (Disputes, Tickets,
+       AML Rule Engine)               delivery stubs)         Audit Trail)
 
-SHARED: Supabase PostgreSQL | Upstash Redis (idempotency, locks, cache) | Upstash QStash
+      ANALYTICAL & SIMULATION SERVICES:
+      - TREASURY/ALM SVC :3010       (Liquidity coverage ratio, NIM, ALM gap buckets)
+      - REPORTING SVC :3011          (PDF statements via OpenHTMLtoPDF, CSV regulatory extracts)
+      - PAYMENT RAIL SVC :3012       (Simulated ACH, RTGS, SWIFT_SIM with settlement & reversals)
+
+SHARED INFRASTRUCTURE:
+- Supabase PostgreSQL (Single system of record, multi-schema tables, RLS enabled)
+- Upstash Redis (Distributed locks, idempotency cache, rate limits, tick counters)
+- Upstash QStash (Durable pub/sub event fan-out & scheduled cron webhooks)
 ```
 
-Note: Customer and Ledger run as **one Spring Boot app / one Render service**, so the KYC check is in-process by default. Set `CUSTOMER_SERVICE_URL` on the ledger to switch to HTTP (`GET /api/customers/by-account/{id}`, 5 s timeout, 503 if the Customer Service is down; a transfer is never attempted without a KYC answer). Unverified customer -> 422. Replaying an idempotency key -> 200 with the original transaction. Fraud and Notification are separate services that call the main app over HTTP. Full diagram: [ARCHITECTURE.md](ARCHITECTURE.md).
+## Microservices Catalog
 
-## Quick start
+| Service | Port | Directory | Description |
+|---|---|---|---|
+| **Customer Service** | `:3003` | root (`src/`) | Customer onboarding, KYC verification, AML risk classification |
+| **Ledger Service** | `:3004` | root (`src/`) | Double-entry book of record, balance validation, transfer atomicity |
+| **Fraud Service** | `:3005` | `fraud-service/` | Async transaction scoring, velocity rules, onboarding risk evaluation |
+| **Notification Service** | `:3006` | `notification-service/` | Transaction alerts, customer onboarding emails, SMS dispatch stubs |
+| **Support Service** | `:3007` | `support-service/` | Customer dispute management, ticket message threading, audit logs |
+| **Auth Service** | `:3008` | `auth-server/` | RS256 JWT issuance, refresh token rotation, credential verification |
+| **Loan Service** | `:3009` | `loan-service/` | Retail loan products, approval workflow, disbursement & repayments |
+| **Treasury Service** | `:3010` | `treasury-service/` | ALM metrics: Liquidity Coverage Ratio (LCR), Net Interest Margin, Gap buckets |
+| **Reporting Service** | `:3011` | `reporting-service/` | Customer PDF account statements & CSV regulatory summaries |
+| **Payment Rail Service** | `:3012` | `payment-rail-service/` | External transfer simulation (ACH, RTGS, SWIFT) with clearing & reversals |
+| **Card Service** | `:3013` | `card-service/` | Virtual debit cards (Luhn-valid, hashed), holds, 4-stage settlement |
+| **Shared Security Starter** | N/A | `security-starter/` | Common library for JWT authentication, RBAC, and SYSTEM service keys |
 
-1. Create the infrastructure: [docs/SETUP.md](docs/SETUP.md)
-2. Supabase SQL Editor: run `db/schema.sql`, `db/seed.sql`, `db/002_fraud_alerts.sql`, `db/003_auth.sql`, `db/005_support.sql`
-3. Copy `.env.example` to `.env` and fill it in
-4. Build and test: `./mvnw -f security-starter/pom.xml install` once, then `./mvnw package` (also inside `fraud-service/`, `notification-service/`, `auth-service/`)
-5. Wire QStash: [docs/QSTASH_WIRING.md](docs/QSTASH_WIRING.md)
-6. Deploy and verify: [docs/RUNBOOK.md](docs/RUNBOOK.md), then `MAIN=https://... scripts/e2e.sh`
+## Quick Start
 
-## Services
+### 1. Database Migrations
+Run the schema scripts in your Supabase SQL Editor in numerical order:
+```bash
+db/schema.sql              # Core customers, accounts, transactions, ledger_entries, outbox
+db/seed.sql                # Seed customers and accounts
+db/002_fraud_alerts.sql    # Fraud alert tables
+db/003_auth.sql            # Auth users and refresh tokens
+db/005_support.sql         # Support tickets and messages
+db/006_auth_server.sql     # Auth server schemas
+db/007_loans.sql           # Loan products, applications, repayments
+db/008_treasury.sql        # ALM snapshots and gap buckets
+db/009_reporting.sql       # Report jobs
+db/010_payment_rails.sql   # External payments
+db/011_cards.sql           # Virtual cards and card transactions
+```
 
-| Folder | Port | Role |
-|---|---|---|
-| repo root | 3003 | Customer + Ledger REST API, outbox relay to QStash |
-| `fraud-service/` | 3005 | QStash webhooks: fraud rules, onboarding risk |
-| `notification-service/` | 3006 | QStash webhooks: email + SMS stub |
-| `support-service/` | 3007 | Support tickets + message thread; auto-creates a dispute ticket from QStash fraud events |
-| `auth-service/` | 3007 | Login, refresh rotation, logout; issues RS256 JWTs |
-| `security-starter/` | - | Shared Maven library: JWT + service-key authorization |
+### 2. Environment Configuration
+Copy `.env.example` to `.env` and provide credentials for:
+- `SUPABASE_HOST`, `SUPABASE_DB_USER`, `SUPABASE_DB_PASSWORD`
+- `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`
+- `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`
+- `JWT_PUBLIC_KEY`, `JWT_PRIVATE_KEY`
+- `SYSTEM_TOKEN_SECRET`
+- `CARD_SETTLEMENT_ACCOUNT_ID`, `MERCHANT_SETTLEMENT_ACCOUNT_ID`, `RAIL_SETTLEMENT_ACCOUNT_ID`
 
-## Docs
+### 3. Build All Modules
+```bash
+# 1. Install security-starter first
+./mvnw -f security-starter/pom.xml install -DskipTests
 
-| File | Contents |
-|---|---|
-| [docs/API.md](docs/API.md) | Endpoints, curl examples, outbox test |
-| [docs/RUNBOOK.md](docs/RUNBOOK.md) | End-to-end test, Render deploy, monitoring, troubleshooting, checklist |
-| [docs/DATA_GOVERNANCE.md](docs/DATA_GOVERNANCE.md) | Customer data inventory, flows, PII leak audit, event payloads, retention, masking, gaps |
-| [docs/SUPPORT_SERVICE.md](docs/SUPPORT_SERVICE.md) | Support service endpoints, deployment, test commands |
-| [docs/AUTHORIZATION.md](docs/AUTHORIZATION.md) | Roles, endpoint matrix, tokens, service keys, attack tests |
-| [docs/SETUP.md](docs/SETUP.md) | Click-by-click account setup |
-| [docs/QSTASH_WIRING.md](docs/QSTASH_WIRING.md) | URL group, retries/DLQ, signature verification |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Design notes |
-| [CHANGES.md](CHANGES.md) | Change log |
+# 2. Build the services
+./mvnw -f pom.xml package -DskipTests
+./mvnw -f fraud-service/pom.xml package -DskipTests
+./mvnw -f notification-service/pom.xml package -DskipTests
+./mvnw -f support-service/pom.xml package -DskipTests
+./mvnw -f loan-service/pom.xml package -DskipTests
+./mvnw -f treasury-service/pom.xml package -DskipTests
+./mvnw -f reporting-service/pom.xml package -DskipTests
+./mvnw -f payment-rail-service/pom.xml package -DskipTests
+./mvnw -f card-service/pom.xml package -DskipTests
+```
 
-**Security:** every API call needs `Authorization: Bearer <JWT>` from `auth-service` (roles CUSTOMER / STAFF); service-to-service calls use `X-Service-Id` + `X-Service-Key` (SYSTEM); QStash webhooks are authenticated by `Upstash-Signature`. Matrix, token strategy and attack tests: [docs/AUTHORIZATION.md](docs/AUTHORIZATION.md). First-time setup: `scripts/gen-keys.sh`, then `db/003_auth.sql`.
+### 4. Running with Docker Compose
+```bash
+docker compose up -d --build
+```
 
-Prototype only: shared database, unauthenticated internal endpoints. Do not use with real data.
+## Security & Architecture Overview
+
+- **Authentication & RBAC**: Every public/internal endpoint enforces Bearer JWTs signed by Auth Service (roles `CUSTOMER` and `STAFF`).
+- **Service-to-Service Communication**: Inter-service synchronous REST calls use `X-Service-Id` and `X-Service-Key` headers validated by `security-starter` (`SYSTEM` role).
+- **Asynchronous Webhooks**: QStash webhooks are verified via cryptographic `Upstash-Signature` headers with clock-skew mitigation.
+- **Double-Entry Ledger Integrity**: Immutable ledger entries with database-level append-only constraints and zero unbacked money movement.
+
+Full architectural breakdown: [ARCHITECTURE.md](ARCHITECTURE.md)  
+Recent system changes: [CHANGES.md](CHANGES.md)

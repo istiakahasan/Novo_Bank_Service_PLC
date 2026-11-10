@@ -1,5 +1,88 @@
 # Changes
 
+## 2026-11-10 — Card Service (:3013)
+
+- **New Microservice**: Added `card-service/` (port `:3013`, Java 17, Spring Boot 3.2.12).
+- **Database Schema**: Added `db/011_cards.sql` creating `cards` and `card_transactions` with status and stage check constraints.
+- **Virtual Debit Card Issuance**:
+  - `POST /api/cards`: Generates 16-digit Luhn-valid card numbers, 3-digit CVVs, and 4-year expiration.
+  - Security invariant: Plaintext card numbers and CVVs are NEVER stored or returned. Plaintext is hashed with SHA-256 (`card_number_hash`, `cvv_hash`) and masked (`****-****-****-1234`).
+  - `GET /api/cards`: Customer sees own masked cards; Staff sees all.
+  - `PATCH /api/cards/{id}/status`: Customer can toggle between `ACTIVE` and `FROZEN`; `CANCELLED` is terminal and Staff-only.
+- **Card Authorization**:
+  - `POST /api/cards/authorize`: Merchant terminal authorization (SYSTEM role).
+  - Validates card existence, CVV hash, status (`ACTIVE`), and daily spend limit ($5,000.00 default).
+  - Integrates with Fraud Service (`/webhooks/transfer-completed`) for synthetic pre-authorization screening.
+  - Places a ledger hold by executing a synchronous transfer from the customer account to `CARD_SETTLEMENT_ACCOUNT_ID` (`card-auth-{cardTxnId}`).
+  - Generates a 6-character alphanumeric authorization code and sets transaction stage to `AUTHORIZED`.
+- **Four-Stage Settlement Simulation**:
+  - `POST /webhooks/card-batch`: QStash schedule (every 60s) advances `AUTHORIZED` -> `BATCHED`.
+  - `POST /webhooks/card-clear`: QStash schedule (every 120s) advances `BATCHED` -> `CLEARED`.
+  - `POST /webhooks/card-fund`: QStash schedule (every 180s) moves `CLEARED` -> `FUNDED` by transferring held funds from `CARD_SETTLEMENT_ACCOUNT_ID` to `MERCHANT_SETTLEMENT_ACCOUNT_ID`.
+  - Compensating reversals: Failure at any settlement stage transitions transaction to `REVERSED` and executes an automatic compensating reversal from `CARD_SETTLEMENT_ACCOUNT_ID` back to the customer's account (`card-reverse-{cardTxnId}`).
+- **Deployment**: Added `services/card/Dockerfile` with multi-stage build caching `security-starter`.
+
+---
+
+## 2026-11-10 — Payment Rail Service (:3012)
+
+- **New Microservice**: Added `payment-rail-service/` (port `:3012`, Java 17, Spring Boot 3.2.12).
+- **Database Schema**: Added `db/010_payment_rails.sql` creating `external_payments` tracking direction, rails, settlement status, and idempotency keys.
+- **Simulated Payment Rails**:
+  - Outbound transfers (`POST /api/external-payments/outbound`): Enforces rail limits (`ACH`: $10,000; `RTGS`: $1,000,000; `SWIFT_SIM`: $5,000,000). Debits customer internal account into `RAIL_SETTLEMENT_ACCOUNT_ID` via Ledger Service and advances status to `PROCESSING`.
+  - Inbound webhook (`POST /webhooks/inbound-payment`): Authenticated via `X-Rail-Secret` or QStash signature. Resolves destination internal account by account number and credits it from `RAIL_SETTLEMENT_ACCOUNT_ID`.
+  - Idempotency: Retries with the same idempotency key safely return the existing payment without duplicate ledger movements.
+- **Scheduled Rail Processing & Compensating Reversals**:
+  - `POST /webhooks/rail-processor`: QStash scheduled worker (every 30s) advancing tick counter in Redis (`ACH` 3 ticks ~90s, `RTGS` 1 tick ~30s, `SWIFT_SIM` 2 ticks ~60s).
+  - Simulates 10% network decline rate with automated compensating reversal from `RAIL_SETTLEMENT_ACCOUNT_ID` back to the customer's account (`ext-reverse-{paymentId}`) and marks payment `RETURNED`.
+- **Ledger Service Addition**:
+  - Added `GET /api/accounts?accountNumber=` to `LedgerAccountController` for inter-service account number lookups.
+- **Deployment**: Added `services/payment-rail/Dockerfile`.
+
+---
+
+## 2026-11-10 — Reporting Service (:3011)
+
+- **New Microservice**: Added `reporting-service/` (port `:3011`, Java 17, Spring Boot 3.2.12).
+- **Database Schema**: Added `db/009_reporting.sql` creating `report_jobs` table.
+- **Statement & Report Generation**:
+  - Customer statement job (`POST /api/reports/statement`): HTML template populated with opening/closing balances and ledger entries, converted into PDF using OpenHTMLtoPDF.
+  - Regulatory CSV extracts (`POST /api/reports/regulatory`): `DAILY_TRANSACTION_SUMMARY`, `LOAN_PORTFOLIO`, `KYC_STATUS`.
+  - Cloud storage: Uploads rendered PDF and CSV files to Supabase Storage and generates presigned download URLs with 24-hour expiration.
+  - Async worker (`POST /webhooks/report-worker`): Scheduled via QStash every 60s, processing one pending report per execution to stay within memory limits.
+- **Deployment**: Added `services/reporting/Dockerfile`.
+
+---
+
+## 2026-11-10 — Treasury / ALM Service (:3010)
+
+- **New Microservice**: Added `treasury-service/` (port `:3010`, Java 17, Spring Boot 3.2.12).
+- **Database Schema**: Added `db/008_treasury.sql` creating `treasury_snapshots` and `alm_gap_buckets`.
+- **Asset-Liability Management (ALM)**:
+  - Liquidity coverage proxy (`GET /api/treasury/liquidity`): Queries aggregate active deposits from Ledger and disbursed loans from Loan Service.
+  - Net Interest Margin (`GET /api/treasury/nim`): Computes annualized interest margin in basis points (bps).
+  - Interest rate gap analysis (`GET /api/treasury/gap`): Groups assets and liabilities across 5 maturity buckets (`<1m`, `1-3m`, `3-12m`, `1-5y`, `>5y`).
+  - Scheduled snapshot worker (`POST /webhooks/treasury-snapshot`): Persists daily snapshots and bucket distributions.
+- **Ledger Service Addition**:
+  - Added `GET /api/accounts/summary` to `LedgerAccountController` returning aggregated active deposit balances.
+- **Deployment**: Added `services/treasury/Dockerfile`.
+
+---
+
+## 2026-11-10 — Loan Service (:3009)
+
+- **New Microservice**: Added `loan-service/` (port `:3009`, Java 17, Spring Boot 3.2.12).
+- **Database Schema**: Added `db/007_loans.sql` creating `loan_products`, `loan_applications`, and `loan_repayments`.
+- **Lending Lifecycle**:
+  - Product catalog (`GET /api/loans/products`): Manages personal, auto, and home loan limits and base rates.
+  - Application submission & review (`POST /api/loans/apply`, `PATCH /api/loans/{id}/review`): Customer application and Staff underwriting workflow.
+  - Disbursement engine: Debits `LOAN_DISBURSEMENT_ACCOUNT_ID` and credits customer account in Ledger Service.
+  - Repayment & amortization: Computes monthly interest deductions; debits customer account to repayment settlement account.
+  - Overdue scheduler (`POST /webhooks/loan-schedule`): QStash cron marking late repayments as `OVERDUE`.
+- **Deployment**: Added `services/loan/Dockerfile`.
+
+---
+
 ## 2026-11-05 - Local development environment (docker-compose)
 
 - New: `docker-compose.yml` (postgres 16, redis 7, mailhog, WireMock 3.13.2 as QStash stand-in, auth, customer, ledger forwarder, fraud, notification, support), per-service `services/*/Dockerfile` (multi-stage, non-root), `init-db.sql` (schema + seed users/accounts/ticket), `wiremock/qstash-mappings/`, `.env.local.example`, `scripts/{make-key,start-all,stop-all,seed-data}.sh`, `README-DEV.md`, `.github/workflows/local-smoke.yml`.
