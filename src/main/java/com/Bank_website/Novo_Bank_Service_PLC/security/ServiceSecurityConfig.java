@@ -33,6 +33,8 @@ public class ServiceSecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/customers/by-mobile/*").hasAnyRole("STAFF", "SYSTEM")
                 .requestMatchers(HttpMethod.GET, "/api/customers/by-account/*").hasAnyRole("CUSTOMER", "STAFF", "SYSTEM")
                 .requestMatchers(HttpMethod.GET, "/api/customers/*").hasAnyRole("CUSTOMER", "STAFF", "SYSTEM")
+                // ledger: aggregate deposit summary for Treasury and Staff
+                .requestMatchers(HttpMethod.GET, "/api/accounts/summary").hasAnyRole("STAFF", "SYSTEM")
                 // ledger: GET /api/accounts?customerId= is the one SYSTEM-only call (used by the Customer Service)
                 .requestMatchers(HttpMethod.GET, "/api/accounts").hasRole("SYSTEM")
                 // ledger: everything else is for users only, never SYSTEM

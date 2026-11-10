@@ -21,6 +21,12 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     @Query("SELECT a.customerId FROM Account a WHERE a.id = :accountId")
     Optional<UUID> findCustomerIdByAccountId(@Param("accountId") UUID accountId);
 
+    @Query("SELECT SUM(a.balanceCents) FROM Account a WHERE a.accountType IN :types AND a.status = 'active'")
+    Long sumBalanceByAccountTypeIn(@Param("types") List<String> types);
+
+    @Query("SELECT COUNT(a) FROM Account a WHERE a.accountType IN :types AND a.status = 'active'")
+    Long countByAccountTypeIn(@Param("types") List<String> types);
+
     /**
      * Atomic single-statement debit. The balance guard means a concurrent debit that
      * leaves too little money yields 0 rows affected instead of a negative balance.
