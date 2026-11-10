@@ -56,3 +56,4 @@ public class TreasuryController {
         return ResponseEntity.ok(treasuryCalculationService.getSnapshots(from, to));
     }
 }
+

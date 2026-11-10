@@ -18,3 +18,4 @@ public record TreasurySnapshotResponse(
         List<GapBucketResponse> gapBuckets
 ) {
 }
+

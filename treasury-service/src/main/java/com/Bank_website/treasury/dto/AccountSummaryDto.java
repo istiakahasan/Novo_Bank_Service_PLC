@@ -19,3 +19,4 @@ public record AccountSummaryDto(
         this.accountCount = accountCount != null ? accountCount : 0L;
     }
 }
+

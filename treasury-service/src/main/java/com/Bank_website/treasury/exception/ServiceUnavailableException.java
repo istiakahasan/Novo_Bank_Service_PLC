@@ -5,3 +5,4 @@ public class ServiceUnavailableException extends RuntimeException {
         super(message);
     }
 }
+

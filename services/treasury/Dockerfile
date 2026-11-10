@@ -27,3 +27,4 @@ USER app
 ENV JAVA_TOOL_OPTIONS="-Xmx256m -XX:+UseSerialGC"
 EXPOSE 3010
 ENTRYPOINT ["java", "-jar", "app.jar"]
+

@@ -9,3 +9,4 @@ public record AccountAggregateSummaryResponse(
         this(totalDepositsCents, totalDepositsCents, accountCount);
     }
 }
+
