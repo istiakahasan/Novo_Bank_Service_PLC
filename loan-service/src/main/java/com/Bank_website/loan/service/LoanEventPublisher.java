@@ -9,9 +9,11 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class LoanEventPublisher {
@@ -82,6 +84,17 @@ public class LoanEventPublisher {
         payload.put("customer_id", repayment.getApplication() != null ? repayment.getApplication().getCustomerId() : null);
         payload.put("amount_cents", repayment.getTotalDueCents());
         payload.put("due_date", repayment.getDueDate() != null ? repayment.getDueDate().toString() : null);
+        payload.put("occurred_at", OffsetDateTime.now().toString());
+        send(payload);
+    }
+
+    public void publishCollectionReminder(UUID applicationId, UUID repaymentId, Long amountCents, LocalDate dueDate) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("event", "collection.reminder");
+        payload.put("application_id", applicationId);
+        payload.put("repayment_id", repaymentId);
+        payload.put("amount_cents", amountCents);
+        payload.put("due_date", dueDate != null ? dueDate.toString() : null);
         payload.put("occurred_at", OffsetDateTime.now().toString());
         send(payload);
     }

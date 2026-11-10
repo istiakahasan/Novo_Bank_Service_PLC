@@ -1,12 +1,19 @@
 package com.Bank_website.loan.controller;
 
+import com.Bank_website.loan.dto.AddCollateralRequest;
+import com.Bank_website.loan.dto.CollateralResponse;
+import com.Bank_website.loan.dto.CollectionActionRequest;
+import com.Bank_website.loan.dto.CollectionActionResponse;
 import com.Bank_website.loan.dto.CreateLoanApplicationRequest;
 import com.Bank_website.loan.dto.LoanApplicationResponse;
 import com.Bank_website.loan.dto.LoanProductResponse;
+import com.Bank_website.loan.dto.OverdueRepaymentResponse;
 import com.Bank_website.loan.dto.PageResponse;
 import com.Bank_website.loan.dto.RepaymentResponse;
 import com.Bank_website.loan.dto.ReviewLoanRequest;
 import com.Bank_website.loan.exception.ForbiddenException;
+import com.Bank_website.loan.service.CollateralService;
+import com.Bank_website.loan.service.CollectionsService;
 import com.Bank_website.loan.service.LoanApplicationService;
 import com.Bank_website.loan.service.LoanDisbursementService;
 import com.Bank_website.loan.service.LoanRepaymentService;
@@ -38,13 +45,19 @@ public class LoanController {
     private final LoanApplicationService loanApplicationService;
     private final LoanDisbursementService loanDisbursementService;
     private final LoanRepaymentService loanRepaymentService;
+    private final CollateralService collateralService;
+    private final CollectionsService collectionsService;
 
     public LoanController(LoanApplicationService loanApplicationService,
                           LoanDisbursementService loanDisbursementService,
-                          LoanRepaymentService loanRepaymentService) {
+                          LoanRepaymentService loanRepaymentService,
+                          CollateralService collateralService,
+                          CollectionsService collectionsService) {
         this.loanApplicationService = loanApplicationService;
         this.loanDisbursementService = loanDisbursementService;
         this.loanRepaymentService = loanRepaymentService;
+        this.collateralService = collateralService;
+        this.collectionsService = collectionsService;
     }
 
     @GetMapping("/products")
@@ -124,5 +137,49 @@ public class LoanController {
             throw new ForbiddenException("Authentication required with valid customer identity");
         }
         return ResponseEntity.ok(loanRepaymentService.payRepayment(id, principal.customerId()));
+    }
+
+    @PreAuthorize("hasRole('STAFF')")
+    @PostMapping("/applications/{id}/collateral")
+    public ResponseEntity<CollateralResponse> addCollateral(
+            @PathVariable UUID id,
+            @Valid @RequestBody AddCollateralRequest request) {
+        CollateralResponse response = collateralService.addCollateral(id, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'STAFF')")
+    @GetMapping("/applications/{id}/collateral")
+    public ResponseEntity<List<CollateralResponse>> getCollateral(
+            @PathVariable UUID id,
+            Authentication authentication) {
+        AuthPrincipal principal = AuthPrincipal.of(authentication);
+        boolean isStaff = principal != null && principal.roles().contains("STAFF");
+        UUID customerId = principal != null ? principal.customerId() : null;
+        return ResponseEntity.ok(collateralService.getCollateral(id, customerId, isStaff));
+    }
+
+    @PreAuthorize("hasRole('STAFF')")
+    @PatchMapping("/collateral/{id}/release")
+    public ResponseEntity<CollateralResponse> releaseCollateral(@PathVariable UUID id) {
+        return ResponseEntity.ok(collateralService.releaseCollateral(id));
+    }
+
+    @PreAuthorize("hasRole('STAFF')")
+    @GetMapping("/collections/overdue")
+    public ResponseEntity<List<OverdueRepaymentResponse>> getOverdueRepayments() {
+        return ResponseEntity.ok(collectionsService.getOverdueRepayments());
+    }
+
+    @PreAuthorize("hasRole('STAFF')")
+    @PostMapping("/collections/{repaymentId}/action")
+    public ResponseEntity<CollectionActionResponse> recordCollectionAction(
+            @PathVariable UUID repaymentId,
+            @Valid @RequestBody CollectionActionRequest request,
+            Authentication authentication) {
+        AuthPrincipal principal = AuthPrincipal.of(authentication);
+        String subject = principal != null ? principal.subject() : null;
+        CollectionActionResponse response = collectionsService.recordAction(repaymentId, subject, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 }

@@ -1,6 +1,7 @@
 package com.Bank_website.loan.controller;
 
 import com.Bank_website.loan.security.QStashSignatureVerifier;
+import com.Bank_website.loan.service.CollectionsService;
 import com.Bank_website.loan.service.LoanRepaymentService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,10 +19,14 @@ public class LoanWebhookController {
 
     private final QStashSignatureVerifier verifier;
     private final LoanRepaymentService loanRepaymentService;
+    private final CollectionsService collectionsService;
 
-    public LoanWebhookController(QStashSignatureVerifier verifier, LoanRepaymentService loanRepaymentService) {
+    public LoanWebhookController(QStashSignatureVerifier verifier,
+                                 LoanRepaymentService loanRepaymentService,
+                                 CollectionsService collectionsService) {
         this.verifier = verifier;
         this.loanRepaymentService = loanRepaymentService;
+        this.collectionsService = collectionsService;
     }
 
     @PostMapping("/loan-schedule")
@@ -34,5 +39,17 @@ public class LoanWebhookController {
         }
         int overdueCount = loanRepaymentService.markOverdueRepayments();
         return ResponseEntity.ok(Map.of("status", "SUCCESS", "overdueRepaymentsMarked", overdueCount));
+    }
+
+    @PostMapping("/collections-daily")
+    public ResponseEntity<Map<String, Object>> handleDailyCollections(
+            @RequestHeader(value = "Upstash-Signature", required = false) String signature,
+            @RequestBody(required = false) String body) {
+        String rawBody = body != null ? body : "";
+        if (!verifier.verify(signature, rawBody)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        int remindersCount = collectionsService.runDailyCollections();
+        return ResponseEntity.ok(Map.of("status", "SUCCESS", "remindersCreated", remindersCount));
     }
 }

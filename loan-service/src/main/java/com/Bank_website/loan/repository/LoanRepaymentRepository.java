@@ -17,4 +17,13 @@ public interface LoanRepaymentRepository extends JpaRepository<LoanRepayment, UU
     List<LoanRepayment> findByApplicationIdOrderByDueDateAsc(@Param("applicationId") UUID applicationId);
 
     List<LoanRepayment> findByStatusAndDueDateBefore(String status, LocalDate dueDate);
+
+    @Query("SELECT COUNT(r) FROM LoanRepayment r WHERE r.application.applicationId = :applicationId AND r.status = :status")
+    long countByApplicationIdAndStatus(@Param("applicationId") UUID applicationId, @Param("status") String status);
+
+    @Query("SELECT r FROM LoanRepayment r JOIN FETCH r.application a WHERE r.status = :status ORDER BY r.dueDate ASC")
+    List<LoanRepayment> findByStatusWithApplicationOrderByDueDateAsc(@Param("status") String status);
+
+    @Query("SELECT r FROM LoanRepayment r WHERE r.application.applicationId = :applicationId AND r.status IN ('PENDING', 'OVERDUE')")
+    List<LoanRepayment> findPendingOrOverdueByApplicationId(@Param("applicationId") UUID applicationId);
 }
