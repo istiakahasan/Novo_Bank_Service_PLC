@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { Providers } from '@novo/shared';
+import { Providers, SessionTimeoutProvider } from '@novo/shared';
 import { AppShell } from '@/components/AppShell';
 import './globals.css';
 
@@ -14,7 +14,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         <Providers>
-          <AppShell>{children}</AppShell>
+          <SessionTimeoutProvider>
+            <AppShell>{children}</AppShell>
+          </SessionTimeoutProvider>
         </Providers>
       </body>
     </html>

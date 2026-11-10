@@ -14,7 +14,15 @@ import {
 } from './session';
 
 type AllowedRole = 'CUSTOMER' | 'STAFF';
-type ServiceName = 'customer' | 'ledger' | 'support';
+type ServiceName =
+  | 'customer'
+  | 'ledger'
+  | 'support'
+  | 'loans'
+  | 'treasury'
+  | 'reports'
+  | 'externalPayments'
+  | 'cards';
 
 interface AuthTokens {
   accessToken: string;
@@ -182,9 +190,14 @@ export function createSessionHandlers(allowedRole: AllowedRole) {
 }
 
 const SERVICE_URLS: Record<ServiceName, () => string | undefined> = {
-  customer: () => process.env.NEXT_PUBLIC_CUSTOMER_SERVICE_URL,
-  ledger: () => process.env.NEXT_PUBLIC_LEDGER_SERVICE_URL,
-  support: () => process.env.NEXT_PUBLIC_SUPPORT_SERVICE_URL,
+  customer: () => process.env.NEXT_PUBLIC_CUSTOMER_SERVICE_URL || 'http://localhost:3003',
+  ledger: () => process.env.NEXT_PUBLIC_LEDGER_SERVICE_URL || 'http://localhost:3004',
+  support: () => process.env.NEXT_PUBLIC_SUPPORT_SERVICE_URL || 'http://localhost:3007',
+  loans: () => process.env.NEXT_PUBLIC_LOAN_SERVICE_URL || 'http://localhost:3009',
+  treasury: () => process.env.NEXT_PUBLIC_TREASURY_SERVICE_URL || 'http://localhost:3010',
+  reports: () => process.env.NEXT_PUBLIC_REPORTING_SERVICE_URL || 'http://localhost:3011',
+  externalPayments: () => process.env.NEXT_PUBLIC_PAYMENT_RAIL_SERVICE_URL || 'http://localhost:3012',
+  cards: () => process.env.NEXT_PUBLIC_CARD_SERVICE_URL || 'http://localhost:3013',
 };
 
 /**

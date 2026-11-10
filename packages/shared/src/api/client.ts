@@ -1,6 +1,14 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 
-export type ServiceName = 'customer' | 'ledger' | 'support';
+export type ServiceName =
+  | 'customer'
+  | 'ledger'
+  | 'support'
+  | 'loans'
+  | 'treasury'
+  | 'reports'
+  | 'externalPayments'
+  | 'cards';
 
 type RetryableConfig = InternalAxiosRequestConfig & { _retried?: boolean };
 
@@ -27,20 +35,16 @@ function goToLogin(): void {
 
 /**
  * One axios instance per backend service. Calls go to this app's own /api/proxy/<service>/... route handler,
- * which adds "Authorization: Bearer <accessToken>" from the httpOnly cookie on the server. Browser JavaScript
- * never sees the token, so the usual "interceptor reads the cookie" step happens server-side instead.
- *
- * 401 -> POST /api/session/refresh (rotates the cookies) -> retry once -> a second 401 redirects to /login.
+ * which adds "Authorization: Bearer <accessToken>" from the httpOnly cookie on the server.
  */
 export function createApiClient(service: ServiceName): AxiosInstance {
   const client = axios.create({
     baseURL: `/api/proxy/${service}`,
-    timeout: 65_000, // Render free instances can need ~60 s to wake up
+    timeout: 65_000,
     headers: { 'Content-Type': 'application/json' },
   });
 
   client.interceptors.request.use((config) => {
-    // Custom header makes state-changing proxy calls impossible from a cross-site form (CSRF defence).
     config.headers.set('X-Requested-With', 'XMLHttpRequest');
     return config;
   });
@@ -71,3 +75,8 @@ export function createApiClient(service: ServiceName): AxiosInstance {
 export const customerClient = createApiClient('customer');
 export const ledgerClient = createApiClient('ledger');
 export const supportClient = createApiClient('support');
+export const loanClient = createApiClient('loans');
+export const treasuryClient = createApiClient('treasury');
+export const reportingClient = createApiClient('reports');
+export const externalPaymentClient = createApiClient('externalPayments');
+export const cardClient = createApiClient('cards');

@@ -1,8 +1,9 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import {
   Badge,
   Button,
@@ -43,6 +44,34 @@ export default function AgentTicketPage({ params }: { params: { id: string } }) 
   const customer = useQuery({ queryKey: ['customer', customerId], queryFn: () => getCustomer(customerId!), enabled: !!customerId });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['ticket', params.id] });
+
+  // Realtime subscription on ticket_messages INSERT for this ticket
+  useEffect(() => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseKey) return;
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const channel = supabase
+      .channel(`ticket_messages_${params.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'ticket_messages',
+          filter: `ticket_id=eq.${params.id}`,
+        },
+        () => {
+          void refresh();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [params.id]);
 
   const reply = useMutation({
     mutationFn: () => addMessage(params.id, { messageBody: body.trim(), isInternalNote: internal }),

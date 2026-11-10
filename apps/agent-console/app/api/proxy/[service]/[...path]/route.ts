@@ -2,7 +2,16 @@ import type { NextRequest } from 'next/server';
 import { createProxyHandler } from '@novo/shared/server';
 
 export const dynamic = 'force-dynamic';
-const proxy = createProxyHandler(['customer', 'support']);
+const proxy = createProxyHandler([
+  'customer',
+  'ledger',
+  'support',
+  'loans',
+  'treasury',
+  'reports',
+  'externalPayments',
+  'cards',
+]);
 
 type Context = { params: { service: string; path: string[] } };
 

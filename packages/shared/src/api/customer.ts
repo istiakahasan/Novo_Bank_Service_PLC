@@ -1,5 +1,5 @@
 import { customerClient } from './client';
-import type { CustomerPage, CustomerResponse, KycStatus, KycUpdateRequest } from '../types';
+import type { AccountResponse, CustomerPage, CustomerResponse, KycStatus, KycUpdateRequest } from '../types';
 
 export async function getCustomer(customerId: string): Promise<CustomerResponse> {
   return (await customerClient.get<CustomerResponse>(`/api/customers/${customerId}`)).data;
@@ -7,6 +7,10 @@ export async function getCustomer(customerId: string): Promise<CustomerResponse>
 
 export async function getCustomerByAccount(accountId: string): Promise<CustomerResponse> {
   return (await customerClient.get<CustomerResponse>(`/api/customers/by-account/${accountId}`)).data;
+}
+
+export async function getCustomerAccounts(customerId: string): Promise<AccountResponse[]> {
+  return (await customerClient.get<AccountResponse[]>(`/api/customers/${customerId}/accounts`)).data;
 }
 
 export async function updateKyc(customerId: string, body: KycUpdateRequest): Promise<CustomerResponse> {

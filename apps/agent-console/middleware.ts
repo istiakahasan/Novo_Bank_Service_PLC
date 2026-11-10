@@ -3,7 +3,7 @@ import { SESSION_COOKIE, verifySession } from '@novo/shared/session';
 
 // Sessions are HMAC-signed cookies: a missing, expired or edited cookie, or a role other than STAFF, goes to /login.
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname, searchParams } = request.nextUrl;
   const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value, process.env.SESSION_SECRET);
   const allowed = session?.role === 'STAFF';
 
@@ -12,12 +12,14 @@ export async function middleware(request: NextRequest) {
   }
   if (!allowed) {
     const url = new URL('/login', request.url);
+    const reason = searchParams.get('reason');
+    if (reason) url.searchParams.set('reason', reason);
     return NextResponse.redirect(url);
   }
   return NextResponse.next();
 }
 
 export const config = {
-  // the /api routes do their own checks (login must stay reachable)
+  // Protect all agent routes including loans review/disburse, collections, treasury, reports
   matcher: ['/((?!api/|_next/|favicon.ico).*)'],
 };
