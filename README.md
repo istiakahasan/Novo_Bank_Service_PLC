@@ -87,6 +87,22 @@ See [architecture.mmd](architecture.mmd) for the complete Mermaid diagram and [A
 
 ---
 
+## Default Login Credentials
+
+Seed test accounts configured in `init-db.sql` / `db/003_auth.sql`:
+
+| Email | Password | Role | Target Application | Initial Funded Balance | Customer / Agent ID |
+|---|---|---|---|---|---|
+| `alice@test.com` | `TestPass123!` | `CUSTOMER` | Customer Portal (`http://localhost:3100`) | $1,000.00 (`NOVO0000000001`) | `11111111-1111-4111-8111-111111111111` |
+| `bob@test.com` | `TestPass123!` | `CUSTOMER` | Customer Portal (`http://localhost:3100`) | $500.00 (`NOVO0000000002`) | `22222222-2222-4222-8222-222222222222` |
+| `staff@test.com` | `TestPass123!` | `STAFF` | Agent Console (`http://localhost:3200`) | N/A (Bank Officer Desk) | `dddddddd-dddd-4ddd-8ddd-dddddddddddd` |
+
+> [!TIP]
+> - **Customer Portal (`:3100`)**: Log in with `alice@test.com` or `bob@test.com` to test retail banking workflows: account transfers, loan applications with collateral pledges, virtual debit card issuance and freeze/unfreeze, outbound external payment rails (ACH/RTGS/SWIFT), and account statement downloads.
+> - **Agent Console (`:3200`)**: Log in with `staff@test.com` to test back-office officer workflows: customer KYC queue verification, loan underwriting and one-click disbursement, debt recovery actions (logging phone calls, demand letters, and typed write-off authorizations), ALM treasury dashboard, and regulatory report generation.
+
+---
+
 ## Quick Start
 
 ### 1. Database Migrations
