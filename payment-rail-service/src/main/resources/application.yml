@@ -1,0 +1,65 @@
+spring:
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  application:
+    name: payment-rail-service
+  datasource:
+    url: jdbc:postgresql://${SUPABASE_HOST:localhost}:5432/postgres
+    username: ${SUPABASE_DB_USER:postgres}
+    password: ${SUPABASE_DB_PASSWORD:postgres}
+    hikari:
+      maximum-pool-size: 3
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL:false}
+      timeout: 3s
+
+server:
+  port: ${PORT:3012}
+
+ledger:
+  service:
+    url: ${LEDGER_SERVICE_URL:http://localhost:3004}
+
+customer:
+  service:
+    url: ${CUSTOMER_SERVICE_URL:http://localhost:3003}
+
+rail:
+  settlement-account-id: ${RAIL_SETTLEMENT_ACCOUNT_ID:00000000-0000-0000-0000-000000000001}
+  secret: ${RAIL_SECRET:rail-secret-dev}
+  failure-rate: ${RAIL_FAILURE_RATE:0.10}
+
+qstash:
+  verify-signatures: ${QSTASH_VERIFY_SIGNATURES:true}
+  current-signing-key: ${QSTASH_CURRENT_SIGNING_KEY:}
+  next-signing-key: ${QSTASH_NEXT_SIGNING_KEY:}
+
+security:
+  jwt:
+    public-key: ${JWT_PUBLIC_KEY:}
+    public-key-next: ${JWT_PUBLIC_KEY_NEXT:}
+    issuer: ${JWT_ISSUER:novo-auth}
+  system:
+    service-id: ${SERVICE_ID:payment-rail-service}
+    service-key: ${SYSTEM_TOKEN_SECRET:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

@@ -40,4 +40,13 @@ public class LedgerAccountController {
                 .toList();
         return ResponseEntity.ok(accounts);
     }
+
+    @PreAuthorize("hasRole('SYSTEM')")
+    @GetMapping(params = "accountNumber")
+    public ResponseEntity<AccountSummaryResponse> byAccountNumber(@RequestParam String accountNumber) {
+        return accountRepository.findByAccountNumber(accountNumber)
+                .map(mapper::toAccountSummary)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
 }
